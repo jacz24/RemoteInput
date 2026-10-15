@@ -150,15 +150,15 @@ void Semaphore::acquire() const
     {
         throw std::system_error(GetLastError(), std::system_category());
     }
-    #elif defined(__APPLE__)
+    #else
+    #if defined(__APPLE__)
+    //Only an unnamed semaphore is a dispatch semaphore. A named one is a POSIX semaphore and falls through.
     if (owned && !shared)
     {
-        if (!dispatch_semaphore_wait(static_cast<dispatch_semaphore_t>(hSem), DISPATCH_TIME_FOREVER))
-        {
-            throw std::system_error(errno, std::system_category());
-        }
+        dispatch_semaphore_wait(static_cast<dispatch_semaphore_t>(hSem), DISPATCH_TIME_FOREVER);
+        return;
     }
-    #else
+    #endif
     if (sem_wait(static_cast<sem_t*>(hSem)))
     {
         throw std::system_error(errno, std::system_category());
@@ -173,15 +173,14 @@ void Semaphore::release() const
     {
         throw std::system_error(GetLastError(), std::system_category());
     }
-    #elif defined(__APPLE__)
+    #else
+    #if defined(__APPLE__)
     if (owned && !shared)
     {
-        if (dispatch_semaphore_signal(static_cast<dispatch_semaphore_t>(hSem)))
-        {
-            throw std::system_error(errno, std::system_category());
-        }
+        dispatch_semaphore_signal(static_cast<dispatch_semaphore_t>(hSem));
+        return;
     }
-    #else
+    #endif
     if (sem_post(static_cast<sem_t*>(hSem)))
     {
         throw std::system_error(errno, std::system_category());
@@ -193,12 +192,13 @@ bool Semaphore::try_acquire() const noexcept
 {
     #if defined(_WIN32) || defined(_WIN64)
     return WaitForSingleObject(hSemaphore, 0) == WAIT_OBJECT_0;
-    #elif defined(__APPLE__)
+    #else
+    #if defined(__APPLE__)
     if (owned && !shared)
     {
         return !dispatch_semaphore_wait(static_cast<dispatch_semaphore_t>(hSem), DISPATCH_TIME_NOW);
     }
-    #else
+    #endif
     return !sem_trywait(static_cast<sem_t*>(hSem));
     #endif
 }
@@ -213,14 +213,15 @@ bool Semaphore::timed_acquire(std::uint64_t nanoseconds) const noexcept
     #if defined(_WIN32) || defined(_WIN64)
     auto milli = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::nanoseconds(nanoseconds));
     return WaitForSingleObject(hSemaphore, milli.count()) == WAIT_OBJECT_0;
-    #elif defined(__APPLE__)
+    #else
+    #if defined(__APPLE__)
     if (owned && !shared)
     {
         auto milli = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::nanoseconds(nanoseconds));
         dispatch_time_t time_out = dispatch_time(DISPATCH_TIME_NOW, milli.count());
         return !dispatch_semaphore_wait(static_cast<dispatch_semaphore_t>(hSem), time_out);
     }
-    #else
+    #endif
     auto duration = std::chrono::nanoseconds(nanoseconds);
     auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
     std::chrono::nanoseconds nano_seconds = (duration - seconds);
