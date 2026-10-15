@@ -323,6 +323,9 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                         JNIEnv* env = nullptr;
                         this->vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr);
 
+                        //Declared before the wrappers, so it detaches after their destructors release their references.
+                        struct Detach { JavaVM* vm; ~Detach() { vm->DetachCurrentThread(); } } detach{this->vm};
+
                         java::Applet applet{env, this->applet, false};
                         java::Component receiver = applet.getComponent(0);
 

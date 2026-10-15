@@ -64,6 +64,9 @@ std::unique_ptr<Hook> exit_process;
 
             control_center = std::make_unique<ControlCenter>(getpid(), false, std::move(main_reflector));
             StartHook();
+
+            //GetNativeReflector attached this thread. JNI requires a detach before the thread exits.
+            JVM().DetachCurrentThread();
         }
 
         //exit_process = std::make_unique<Hook>((void *) GetProcAddress(GetModuleHandleA("kernel32.dll"), "ExitProcess"), (void *) __exit_process);
@@ -110,6 +113,9 @@ void __exit_process(int exit_code)
         {
             control_center = std::make_unique<ControlCenter>(getpid(), false, std::move(reflector));
             StartHook();
+
+            //GetNativeReflector attached this thread. JNI requires a detach before the thread exits.
+            JVM().DetachCurrentThread();
         }
 
         std::atexit([]{ __exit_process(0); });
@@ -147,6 +153,9 @@ void __exit_process(int exit_code)
         {
             control_center = std::make_unique<ControlCenter>(getpid(), false, std::move(main_reflector));
             StartHook();
+
+            //GetNativeReflector attached this thread. JNI requires a detach before the thread exits.
+            JVM().DetachCurrentThread();
         }
 
         std::atexit([]{ __exit_process(0); });
