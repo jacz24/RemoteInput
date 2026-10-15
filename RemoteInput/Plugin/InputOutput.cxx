@@ -218,7 +218,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 this->gain_focus(&receiver);
             }
 
-            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::int32_t modifiers = GetActiveKeyModifiers();
             std::int32_t keycode = GetJavaKeyCode(code);
             std::int32_t location = GetKeyLocation(code);
@@ -248,7 +248,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 }
 
                 JNIEnv* env = receiver.getEnv();
-                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::int32_t modifiers = GetActiveKeyModifiers();
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
@@ -289,7 +289,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 }
 
                 JNIEnv* env = receiver.getEnv();
-                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::int32_t modifiers = GetActiveKeyModifiers();
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
@@ -346,7 +346,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 this->gain_focus(&receiver);
                             }
 
-                            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                             std::int32_t modifiers = GetActiveKeyModifiers();
                             std::int32_t keycode = GetJavaKeyCode(code);
                             std::int32_t location = GetKeyLocation(code);
@@ -398,7 +398,7 @@ void InputOutput::release_key(std::int32_t code) noexcept
             }
 
             JNIEnv* env = receiver.getEnv();
-            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::int32_t modifiers = GetActiveKeyModifiers();
             std::int32_t keycode = GetJavaKeyCode(code);
             std::int32_t location = GetKeyLocation(code);
@@ -433,7 +433,7 @@ void InputOutput::release_key(std::int32_t code) noexcept
             }
 
             JNIEnv* env = receiver.getEnv();
-            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::int32_t modifiers = GetActiveKeyModifiers();
             std::int32_t keycode = GetJavaKeyCode(code);
             std::int32_t location = GetKeyLocation(code);
@@ -494,7 +494,7 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
                 isShiftDown = true;
 
                 std::int32_t code = VK_LSHIFT;
-                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::int32_t modifiers = java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK;
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
@@ -514,7 +514,7 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
 
         //Character Key
         std::int32_t code = static_cast<std::int32_t>(c);
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t keycode = CharToJavaKeyCode(code);
         std::int32_t location = GetKeyLocation(code);
 
@@ -537,7 +537,7 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
                              java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
 
         yield_thread(std::chrono::milliseconds(lround(Random::instance()->generate_random_float(1.0, 1.1) * keywait)));
-        when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
         java::KeyEvent::Post(env,
                              &receiver,
@@ -556,7 +556,7 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
             isShiftDown = false;
 
             std::int32_t code = VK_LSHIFT;
-            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::int32_t modifiers = java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK;
             std::int32_t keycode = GetJavaKeyCode(code);
             std::int32_t location = GetKeyLocation(code);
@@ -600,7 +600,7 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
     if (!isShiftDown && (modifiers & java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK))
     {
         std::int32_t code = VK_LSHIFT;
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t modifiers = java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK;
         std::int32_t keycode = GetJavaKeyCode(code);
         std::int32_t location = GetKeyLocation(code);
@@ -619,7 +619,7 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
 
     //Character Key
     std::int32_t code = static_cast<std::int32_t>(key);
-    std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     std::int32_t keycode = CharToJavaKeyCode(code);
     std::int32_t location = GetKeyLocation(code);
 
@@ -642,7 +642,7 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
                          java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
 
     yield_thread(std::chrono::milliseconds(key_down_time));
-    when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
     java::KeyEvent::Post(env,
                          &receiver,
@@ -659,7 +659,7 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
     if (!isShiftDown && (modifiers & java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK))
     {
         std::int32_t code = VK_LSHIFT;
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t modifiers = java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK;
         std::int32_t keycode = GetJavaKeyCode(code);
         std::int32_t location = GetKeyLocation(code);
@@ -710,7 +710,7 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
                 isShiftDown = true;
 
                 std::int32_t code = VK_LSHIFT;
-                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 std::int32_t modifiers = java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK;
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
@@ -730,7 +730,7 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
 
         //Character Key
         std::int32_t code = static_cast<std::int32_t>(c);
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t keycode = CharToJavaKeyCode(code);
         std::int32_t location = GetKeyLocation(code);
 
@@ -753,7 +753,7 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
                              java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
 
         yield_thread(std::chrono::milliseconds(sleeptimes[sleepindex++]));
-        when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
         java::KeyEvent::Post(env,
                              &receiver,
@@ -772,7 +772,7 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
             isShiftDown = false;
 
             std::int32_t code = VK_LSHIFT;
-            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::int32_t modifiers = java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK;
             std::int32_t keycode = GetJavaKeyCode(code);
             std::int32_t location = GetKeyLocation(code);
@@ -998,7 +998,7 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
     JNIEnv* env = receiver.getEnv();
     this->handle_resize(&receiver);
 
-    std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+    std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
     bool isRequestedPositionInsideComponent = !(x < 0 || y < 0 || x > static_cast<std::int32_t>(this->w) || y > static_cast<std::int32_t>(this->h));
     bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
@@ -1068,7 +1068,7 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
         bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
         if (isRequestedPositionInsideComponent)
         {
-            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
             //Button priority is 1 (left), 3 (right), 2 (middle)
             mouse_buttons[SimbaMouseButtonToJava(button) - 1] = true;
@@ -1112,7 +1112,7 @@ void InputOutput::release_mouse(std::int32_t button) noexcept
         JNIEnv* env = receiver.getEnv();
         this->handle_resize(&receiver);
 
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
         bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
         bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
@@ -1168,7 +1168,7 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
             cy = 0;
         }
 
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t modifiers = GetActiveKeyModifiers();
 
         //Technically, this should be gausian curve or bell-curve or parabola as the wheel speeds up and slows down..
@@ -1193,7 +1193,7 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
     }
     else if (isRequestedPositionInsideComponent && !isMouseInsideComponent)
     {
-        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
         bool isDragging = mouse_buttons[0] || mouse_buttons[1] || mouse_buttons[2];
         if (isDragging)
