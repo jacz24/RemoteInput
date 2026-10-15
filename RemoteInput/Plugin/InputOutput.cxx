@@ -97,7 +97,7 @@ static java::KeyEvent::KeyCodes control_keys_locations[] = {
     java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD
 };
 
-InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
+InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), repeat_task(0), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
 {
     reflection->getEnv()->GetJavaVM(&vm);
 
@@ -314,10 +314,17 @@ void InputOutput::hold_key(std::int32_t code) noexcept
 
                 if (this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
                 {
-                    input_thread->add_task([&](std::atomic_bool &stopped) {
+                    std::uint32_t task = ++repeat_task;
+                    input_thread->add_task([&, task](std::atomic_bool &stopped) {
                         if (this->keyboard_repeat_delay > 0)
                         {
                             yield_thread(std::chrono::milliseconds(this->keyboard_repeat_delay));
+                        }
+
+                        //A key released within the repeat delay never repeats, as on a keyboard: end before the attach.
+                        if (currently_held_key == -1 || repeat_task != task)
+                        {
+                            return;
                         }
 
                         JNIEnv* env = nullptr;
@@ -341,7 +348,14 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 yield_thread(std::chrono::milliseconds(this->keyboard_speed));
                             }
 
+                            //Read the key after the sleep: a release or a newer task during the sleep ends this one, with no press after the release.
+                            //release_key takes the same lock, so a release cannot come between this check and the last post below.
+                            std::lock_guard<std::mutex> lock(this->mutex);
                             std::int32_t code = currently_held_key;
+                            if (code == -1 || repeat_task != task)
+                            {
+                                break;
+                            }
 
                             //Post Event
                             if (!this->has_focus(&receiver))
@@ -417,6 +431,9 @@ void InputOutput::release_key(std::int32_t code) noexcept
         }
         else
         {
+            //A key-repeat task posts under the same lock, so none of its events can come after this release.
+            std::lock_guard<std::mutex> lock(this->mutex);
+
             //Remove the held key from the list..
             held_keys.erase(it);
 

@@ -34,6 +34,7 @@ private:
 
     // MARK: - Input Variables
     std::atomic<std::int32_t> currently_held_key;
+    std::atomic<std::uint32_t> repeat_task; // The newest key-repeat task. An older task stops when it sees a newer one.
     std::list<std::int32_t> held_keys;
     std::int32_t x;
     std::int32_t y;
