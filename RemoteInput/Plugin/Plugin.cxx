@@ -20,6 +20,13 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 HMODULE module = nullptr;
+#elif defined(__APPLE__)
+#include <algorithm>
+#include <climits>
+#include <cstring>
+#include <string>
+#include <crt_externs.h>
+#include <dlfcn.h>
 #endif
 
 std::vector<std::unique_ptr<Injector>> injectors;
@@ -93,11 +100,54 @@ void __exit_process(int exit_code)
     control_center.reset();
 }
 
+//RuneLite blocks task_for_pid but allows DYLD_INSERT_LIBRARIES. Started that way, RuneLite's launcher and its
+//client (the "-c" process) both load this library. Only the client runs the loader, and it removes the
+//variable before Java can read it. The launcher keeps it, so the client inherits it.
+static bool loaded_into_runelite_launcher() noexcept
+{
+    const char* inserted = getenv("DYLD_INSERT_LIBRARIES");
+    Dl_info info = {0};
+    char self[PATH_MAX] = {0};
+    if (!inserted || !dladdr(reinterpret_cast<void*>(&loaded_into_runelite_launcher), &info) || !realpath(info.dli_fname, self))
+    {
+        return false;
+    }
+
+    bool listed = false;
+    std::string paths = inserted;
+    for (std::size_t start = 0, end = 0; start <= paths.size(); start = end + 1)
+    {
+        end = std::min(paths.find(':', start), paths.size());
+        char path[PATH_MAX] = {0};
+        listed = listed || (realpath(paths.substr(start, end - start).c_str(), path) && std::strcmp(path, self) == 0);
+    }
+
+    if (!listed)
+    {
+        return false;
+    }
+
+    char** argv = *_NSGetArgv();
+    int argc = *_NSGetArgc();
+    if (std::none_of(argv, argv + argc, [](const char* arg) { return std::strcmp(arg, "-c") == 0; }))
+    {
+        return true;
+    }
+
+    unsetenv("DYLD_INSERT_LIBRARIES");
+    return false;
+}
+
 [[gnu::constructor]] void __load()
 {
     #if defined(DEBUG)
     printf("ATTACHED TO: %d\n", getpid());
     #endif
+
+    if (loaded_into_runelite_launcher())
+    {
+        return;
+    }
 
     extern void disable_app_nap();
 

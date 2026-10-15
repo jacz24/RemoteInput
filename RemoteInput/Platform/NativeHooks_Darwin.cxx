@@ -395,8 +395,8 @@ void GeneratePixelBuffers(void* ctx, GLuint (&pbo)[2], GLint width, GLint height
     CGLContextObj CGL_MACRO_CONTEXT = static_cast<CGLContextObj>(ctx);
     #endif
 
-    //Buffer size changed
-    if (w != width || h != height)
+    //Buffer size changed, or the caller dropped its buffers
+    if (w != width || h != height || pbo[0] == 0)
     {
         w = width;
         h = height;
@@ -576,6 +576,107 @@ CGLError mCGLFlushDrawable(CGLContextObj ctx) noexcept
     return o_CGLFlushDrawable(ctx);
 }
 #endif
+
+//RuneLite's GPU plugin draws through rlawt into an IOSurface and never calls CGLFlushDrawable.
+//At rlawt's swap, the finished frame is in the bound framebuffer, as for RuneLite's own screenshot.
+void JavaRLAWTSwapBuffers(JNIEnv* env, jobject self) noexcept
+{
+    extern std::unique_ptr<ControlCenter> control_center;
+    CGLContextObj ctx = CGLGetCurrentContext();
+
+    if (control_center && ctx)
+    {
+        static GLuint pbo[2] = {0};
+        static CGLContextObj pbo_context = nullptr;
+        CGLContextObj CGL_MACRO_CONTEXT = ctx;
+
+        //A GPU plugin restart makes a new context, and the old buffers died with the old one
+        if (ctx != pbo_context)
+        {
+            pbo[0] = pbo[1] = 0;
+            pbo_context = ctx;
+        }
+
+        GLint viewport[4] = {0};
+        glGetIntegerv(GL_VIEWPORT, viewport);
+        GLint width = viewport[2];
+        GLint height = viewport[3];
+
+        std::int32_t image_width = 0;
+        std::int32_t image_height = 0;
+        control_center->get_image_dimensions(&image_width, &image_height);
+
+        // shortcut: on a Retina display the frame is the canvas times the backing scale, so Simba's coordinates do not match; downscale it when a Retina display is used.
+        // shortcut: no debug image or cursor is drawn here, because rlawt's context is a core profile; add a shader if a script's paint is needed on the Mac.
+        if (can_render(-1, width, height) && width <= image_width && height <= image_height)
+        {
+            GLint draw_fbo = 0;
+            GLint read_fbo = 0;
+            glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &draw_fbo);
+            glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_fbo);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, draw_fbo);
+
+            control_center->set_target_dimensions(width, height);
+            if (std::uint8_t* dest = control_center->get_image())
+            {
+                GeneratePixelBuffers(ctx, pbo, width, height, 4);
+                ReadPixelBuffers(ctx, dest, pbo, width, height, 4, control_center->get_image_format());
+            }
+
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, read_fbo);
+        }
+    }
+
+    static void (*o_swap_buffers)(JNIEnv*, jobject) = nullptr;
+    if (!o_swap_buffers)
+    {
+        o_swap_buffers = reinterpret_cast<decltype(o_swap_buffers)>(dlsym(RTLD_DEFAULT, "Java_net_runelite_rlawt_AWTContext_swapBuffers"));
+    }
+
+    if (o_swap_buffers)
+    {
+        o_swap_buffers(env, self);
+    }
+}
+
+//Sends rlawt's AWTContext.swapBuffers to JavaRLAWTSwapBuffers through the game's class loader.
+//RegisterNatives patches no code, so it has no range limit, unlike rd_route's arm64 branch.
+//A client without rlawt keeps its own swap.
+void HookRLAWTSwapBuffers(JNIEnv* env, jobject applet) noexcept
+{
+    auto checked = [env](jobject result) -> jobject {
+        if (env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+            return nullptr;
+        }
+        return result;
+    };
+
+    jclass applet_class = env->GetObjectClass(applet);
+    jclass class_class = env->FindClass("java/lang/Class");
+    jclass loader_class = env->FindClass("java/lang/ClassLoader");
+    jobject loader = checked(env->CallObjectMethod(applet_class, env->GetMethodID(class_class, "getClassLoader", "()Ljava/lang/ClassLoader;")));
+    jstring name = env->NewStringUTF("net.runelite.rlawt.AWTContext");
+    jobject context = loader ? checked(env->CallObjectMethod(loader, env->GetMethodID(loader_class, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;"), name)) : nullptr;
+
+    if (context)
+    {
+        JNINativeMethod method = {const_cast<char*>("swapBuffers"), const_cast<char*>("()V"), reinterpret_cast<void*>(JavaRLAWTSwapBuffers)};
+        if (env->RegisterNatives(static_cast<jclass>(context), &method, 1) != JNI_OK)
+        {
+            env->ExceptionClear();
+        }
+    }
+
+    for (jobject ref : {static_cast<jobject>(applet_class), static_cast<jobject>(class_class), static_cast<jobject>(loader_class), loader, static_cast<jobject>(name), context})
+    {
+        if (ref)
+        {
+            env->DeleteLocalRef(ref);
+        }
+    }
+}
 #endif
 
 #if defined(__APPLE__)
@@ -623,6 +724,10 @@ void InitialiseHooks() noexcept
 void StartHook() noexcept
 {
     InitialiseHooks();
+
+    extern std::unique_ptr<ControlCenter> control_center;
+    java::Applet applet = control_center->reflect_applet();
+    HookRLAWTSwapBuffers(applet.getEnv(), applet.get());
 
     //Signal that all hooks are finished initializing..
     ControlCenter::signal_sync(getpid());
