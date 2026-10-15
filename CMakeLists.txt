@@ -203,8 +203,6 @@ set(SRC_LIST
         RemoteInput/Java/Window.hxx
         RemoteInput/Java/WindowEvent.cxx
         RemoteInput/Java/WindowEvent.hxx
-        RemoteInput/Java/RIEventQueue.cxx
-        RemoteInput/Java/RIEventQueue.hxx
         RemoteInput/Platform/DebugConsole.cxx
         RemoteInput/Platform/DebugConsole.hxx
         RemoteInput/Platform/JavaInternal.hxx

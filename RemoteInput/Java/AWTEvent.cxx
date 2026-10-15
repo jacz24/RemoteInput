@@ -7,7 +7,6 @@
 //
 
 #include "AWTEvent.hxx"
-#include "RIEventQueue.hxx"
 #include <utility>
 
 namespace java
@@ -109,7 +108,7 @@ namespace java
                     if (queue_class)
                     {
                         static jmethodID post_methodId = env->GetMethodID(queue_class, "postEvent", "(Ljava/awt/AWTEvent;)V");
-                        env->CallVoidMethod(queue, post_methodId, RIEvent(env, event).get());
+                        env->CallVoidMethod(queue, post_methodId, event);
 
                         //Cleanup
                         env->DeleteLocalRef(queue_class);

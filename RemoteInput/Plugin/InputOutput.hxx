@@ -18,7 +18,6 @@
 #include "ThreadPool.hxx"
 #include "Reflection.hxx"
 #include "Component.hxx"
-#include "RIEventQueue.hxx"
 #include "JVM.hxx"
 
 class InputOutput final
@@ -28,7 +27,10 @@ private:
     jobject applet;
     std::mutex mutex;
     std::unique_ptr<ThreadPool> input_thread;
-    std::unique_ptr<java::RIEventQueue> event_queue;
+
+    // Only flags: RemoteInput pushes no event queue, so it does not block real input.
+    mutable bool keyboard_input_enabled;
+    mutable bool mouse_input_enabled;
 
     // MARK: - Input Variables
     std::atomic<std::int32_t> currently_held_key;
