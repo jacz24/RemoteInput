@@ -101,7 +101,7 @@ InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(
 {
     reflection->getEnv()->GetJavaVM(&vm);
 
-    event_queue = std::make_unique<java::RIEventQueue>(reflection->getEnv());
+    event_queue = std::make_unique<java::RIEventQueue>(reflection->getEnv(), applet);
     x = std::numeric_limits<std::int32_t>::min();
     y = std::numeric_limits<std::int32_t>::min();
 

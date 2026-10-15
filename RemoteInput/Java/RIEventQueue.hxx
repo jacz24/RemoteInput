@@ -32,11 +32,12 @@ namespace java
         bool is_blocking_keyboard_events;
         bool is_blocking_mouse_events;
 
-        void DefineClass();
+        void DefineClass(jobject host);
         static void DispatchEvent(JNIEnv* env, jobject thiz, jobject event);
 
     public:
-        RIEventQueue(JNIEnv* env) noexcept;
+        // `host` is an object of the game, such as the applet. The classes join its class's loader and package.
+        RIEventQueue(JNIEnv* env, jobject host) noexcept;
 
         bool is_keyboard_input_enabled() const noexcept;
         void set_keyboard_input_enabled(bool enabled) noexcept;
