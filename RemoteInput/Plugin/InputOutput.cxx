@@ -97,11 +97,10 @@ static java::KeyEvent::KeyCodes control_keys_locations[] = {
     java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD
 };
 
-InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), event_queue(nullptr), currently_held_key(-1), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
+InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
 {
     reflection->getEnv()->GetJavaVM(&vm);
 
-    event_queue = std::make_unique<java::RIEventQueue>(reflection->getEnv(), applet);
     x = std::numeric_limits<std::int32_t>::min();
     y = std::numeric_limits<std::int32_t>::min();
 
@@ -151,9 +150,6 @@ InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(
         repeat_rate += repeat_rate * Random::instance()->generate_random_float(0.0, 0.20);
         this->keyboard_speed = round(repeat_rate);
     #endif
-
-    java::EventQueue queue = java::Toolkit::getDefaultToolkit(reflection->getEnv()).getSystemEventQueue();
-    queue.push(this->event_queue.get());
 }
 
 InputOutput::~InputOutput() noexcept
@@ -162,7 +158,6 @@ InputOutput::~InputOutput() noexcept
     // We `release` it instead to prevent this.
     //this->input_thread->terminate();
     this->input_thread.release();
-    this->event_queue.reset();
     this->vm = nullptr;
     this->applet = nullptr;
 }
@@ -881,12 +876,12 @@ void InputOutput::lose_focus(java::Component* component) const noexcept
 
 bool InputOutput::is_keyboard_input_enabled() const noexcept
 {
-    return event_queue->is_keyboard_input_enabled();
+    return keyboard_input_enabled;
 }
 
 void InputOutput::set_keyboard_input_enabled(bool enabled) const noexcept
 {
-    event_queue->set_keyboard_input_enabled(enabled);
+    keyboard_input_enabled = enabled;
 
     if (!enabled)
     {
@@ -899,12 +894,12 @@ void InputOutput::set_keyboard_input_enabled(bool enabled) const noexcept
 
 bool InputOutput::is_mouse_input_enabled() const noexcept
 {
-    return event_queue->is_mouse_input_enabled();
+    return mouse_input_enabled;
 }
 
 void InputOutput::set_mouse_input_enabled(bool enabled) const noexcept
 {
-    event_queue->set_mouse_input_enabled(enabled);
+    mouse_input_enabled = enabled;
 
     if (!enabled)
     {
