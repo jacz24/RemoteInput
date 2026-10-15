@@ -60,25 +60,24 @@ namespace java
     {
         if (is_system_generated)
         {
-            //Get AWTEventAccessor
-            jclass cls = env->FindClass("sun/awt/AWTEventAccessor");
+            // The mark that SunToolkit.postEvent puts on real OS input.
+            jclass cls = env->FindClass("sun/awt/SunToolkit");
             if (cls)
             {
-                static jmethodID accessor_methodId = env->GetStaticMethodID(cls, "getAWTEventAccessor", "()Lsun/awt/AWTEventAccessor;");
-                jobject accessor = env->CallStaticObjectMethod(cls, accessor_methodId);
-
-                if (accessor)
+                static jmethodID methodId = env->GetStaticMethodID(cls, "setSystemGenerated", "(Ljava/awt/AWTEvent;)V");
+                if (methodId)
                 {
-                    //Set System Generated
-                    static jmethodID system_generated_methodId = env->GetMethodID(cls, "setSystemGenerated", "(Ljava/awt/AWTEvent;)V");
-                    env->CallVoidMethod(accessor, system_generated_methodId, event);
-
-                    //Cleanup
-                    env->DeleteLocalRef(accessor);
+                    env->CallStaticVoidMethod(cls, methodId, event);
                 }
 
                 //Cleanup
                 env->DeleteLocalRef(cls);
+            }
+
+            // A JVM without SunToolkit.setSystemGenerated posts the event unmarked.
+            if (env->ExceptionCheck())
+            {
+                env->ExceptionClear();
             }
         }
     }
