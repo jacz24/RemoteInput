@@ -95,20 +95,7 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                         env->PopLocalFrame(nullptr);
                     }
 
-                    if (this->remote_vm)
-                    {
-                        this->remote_vm.reset();
-                    }
-
-                    if (this->io_controller)
-                    {
-                        this->io_controller.reset();
-                    }
-
-                    if (this->main_reflector)
-                    {
-                        this->main_reflector.reset();
-                    }
+                    //No cleanup here: only terminate() ends this loop, and the destructor that called it owns these members.
                 }
             });
         }
@@ -117,7 +104,14 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
 
 ControlCenter::~ControlCenter()
 {
-    //terminate();
+    //Wake the command thread before its signals close: on the Mac, sem_close blocks while a thread waits in sem_wait.
+    //Not on Windows: there the command thread is gone by now, and this call hung the exit (upstream c10bcbc).
+    #if defined(__APPLE__)
+    if (!is_controller)
+    {
+        terminate();
+    }
+    #endif
 
     if (io_controller)
     {
@@ -164,7 +158,11 @@ void ControlCenter::terminate() noexcept
 
             if (response_signal)
             {
-                response_signal->wait();
+                //Bounded: at JVM exit, a command thread inside a JNI call blocks for good and never answers.
+                for (int i = 0; i < 1000 && !response_signal->try_wait(); ++i)
+                {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
             }
         }
     }
