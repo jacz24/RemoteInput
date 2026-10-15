@@ -22,7 +22,7 @@ namespace java
         virtual ~WindowEvent() noexcept;
 
         static void Dispatch(JNIEnv* env, Component* receiver, std::int32_t id, std::int32_t old_state, std::int32_t new_state, bool is_system_generated = false) noexcept;
-        static void Post(JNIEnv* env, Component* receiver, std::int32_t id, std::int32_t old_state, std::int32_t new_state, bool is_system_generated = false) noexcept;
+        static void Post(JNIEnv* env, Component* receiver, std::int32_t id, std::int32_t old_state, std::int32_t new_state, bool is_system_generated = true) noexcept;
 
         enum WindowEventCodes : std::int32_t
         {

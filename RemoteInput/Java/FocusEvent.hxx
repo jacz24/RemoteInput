@@ -30,7 +30,7 @@ namespace java
         virtual ~FocusEvent() noexcept;
 
         static void Dispatch(JNIEnv* env, Component* receiver, std::int32_t id, bool temporary, Cause cause, bool is_system_generated = false) noexcept;
-        static void Post(JNIEnv* env, Component* receiver, std::int32_t id, bool temporary, Cause cause, bool is_system_generated = false) noexcept;
+        static void Post(JNIEnv* env, Component* receiver, std::int32_t id, bool temporary, Cause cause, bool is_system_generated = true) noexcept;
 
         #if !defined(_MSC_VER)
         #warning "WINDOWS BS"
