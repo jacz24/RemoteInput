@@ -3,9 +3,10 @@
 // the frame, and injects input. It asserts from the captured pixels, so it needs no reflection API.
 //
 // Build:  cc -o testbed/out/driver testbed/driver.c
-// Run:    testbed/out/driver <pid> <dylib-path>
+// Run:    testbed/out/driver <pid> <dylib-path> [modifiers]
 //
 // Checks: target dimensions, a red capture square, an injected mouse point (green), an injected key.
+// "modifiers" also injects the input of probe_modifiers.sh after the checks.
 
 #include <dlfcn.h>
 #include <stdio.h>
@@ -28,7 +29,7 @@ static void nap(int ms) {
 } while (0)
 
 int main(int argc, char** argv) {
-    if (argc < 3) { fprintf(stderr, "usage: %s <pid> <dylib>\n", argv[0]); return 2; }
+    if (argc < 3) { fprintf(stderr, "usage: %s <pid> <dylib> [modifiers]\n", argv[0]); return 2; }
     int pid = atoi(argv[1]);
 
     void* h = dlopen(argv[2], RTLD_NOW);
@@ -112,6 +113,23 @@ int main(int argc, char** argv) {
     bool key_ok = keybox[2] == 107; // red channel == 'k'
     printf("%s: injected key box red=%d (want 107)\n", key_ok ? "PASS" : "FAIL", keybox[2]);
     fails += !key_ok;
+
+    // "modifiers" mode (Simba-AI #496): probe_modifiers.sh checks, in the target's log, the events this input makes.
+    if (argc > 3 && strcmp(argv[3], "modifiers") == 0) {
+        // A nap after each call: AWT's EventQueue merges a pending MOUSE_MOVED or MOUSE_DRAGGED into the next one.
+        const int32_t drags[3][2] = { {1, 310}, {3, 320}, {2, 330} }; // button, x where the drag ends
+        for (int i = 0; i < 3; ++i) {
+            MoveMouse(eios, 300, 200);                          nap(50);
+            HoldMouse(eios, 300, 200, drags[i][0]);             nap(50);
+            MoveMouse(eios, drags[i][1], 205);                  nap(50);
+            ReleaseMouse(eios, drags[i][1], 205, drags[i][0]);  nap(50);
+        }
+        MoveMouse(eios, w - 1, 250);  nap(50);
+        MoveMouse(eios, w, 250);      nap(50);
+        MoveMouse(eios, 300, 200);    nap(50);
+        MoveMouse(eios, 300, hgt);
+        nap(500); // let the target log the events before e2e.sh stops it
+    }
 
     printf(fails ? "\n%d CHECK(S) FAILED\n" : "\nALL CHECKS PASSED\n", fails);
     return fails ? 1 : 0;

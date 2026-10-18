@@ -40,4 +40,4 @@ if ! kill -0 "$AUT_PID" 2>/dev/null; then
     exit 1
 fi
 
-"$OUT/driver" "$AUT_PID" "$DYLIB"
+"$OUT/driver" "$AUT_PID" "$DYLIB" "$@"   # probe_modifiers.sh passes "modifiers"
