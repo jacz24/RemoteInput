@@ -64,13 +64,19 @@ public class TestClient {
                 System.out.flush();
             }
         });
+        // Log every mouse event the canvas gets, with its extended modifiers (probe_modifiers.sh reads these lines).
+        Toolkit.getDefaultToolkit().addAWTEventListener(e -> {
+            MouseEvent m = (MouseEvent) e;
+            if (m.getSource() == canvas) {
+                System.out.println("RECV " + m.paramString() + ",modsEx=" + m.getModifiersEx());
+                System.out.flush();
+            }
+        }, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
         canvas.addMouseListener(new MouseAdapter() {
             @Override public void mousePressed(MouseEvent e) {
                 STATE.mouseX = e.getX();
                 STATE.mouseY = e.getY();
                 STATE.mouseButton = e.getButton();
-                System.out.println("RECV mousePressed (" + e.getX() + "," + e.getY() + ") btn=" + e.getButton());
-                System.out.flush();
             }
         });
         canvas.addMouseMotionListener(new MouseMotionAdapter() {

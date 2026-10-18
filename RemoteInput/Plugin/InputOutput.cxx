@@ -1020,15 +1020,15 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
 
     std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-    bool isRequestedPositionInsideComponent = !(x < 0 || y < 0 || x > static_cast<std::int32_t>(this->w) || y > static_cast<std::int32_t>(this->h));
-    bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
+    bool isRequestedPositionInsideComponent = !(x < 0 || y < 0 || x >= static_cast<std::int32_t>(this->w) || y >= static_cast<std::int32_t>(this->h));
+    bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
     bool isDragging = mouse_buttons[0] || mouse_buttons[1] || mouse_buttons[2];
 
     //Button priority is 1 (left), 3 (right), 2 (middle)
     std::int32_t button = mouse_buttons[0] ? 1 : mouse_buttons[2] ? 3 : mouse_buttons[1] ? 2 : 0;
-    std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[0]) : 0) |
-                              (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[1]) : 0) |
-                              (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[2]) : 0);
+    std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
+                              (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
+                              (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(3) : 0);
 
     //Key extended masks
     buttonMask |= GetActiveKeyModifiers();
@@ -1085,7 +1085,7 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
         JNIEnv* env = receiver.getEnv();
         this->handle_resize(&receiver);
 
-        bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
+        bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
         if (isRequestedPositionInsideComponent)
         {
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1093,9 +1093,9 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
             //Button priority is 1 (left), 3 (right), 2 (middle)
             mouse_buttons[SimbaMouseButtonToJava(button) - 1] = true;
             std::int32_t button = mouse_buttons[0] ? 1 : mouse_buttons[2] ? 3 : mouse_buttons[1] ? 2 : 0;
-            std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[0]) : 0) |
-                                      (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[1]) : 0) |
-                                      (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[2]) : 0);
+            std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
+                                      (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
+                                      (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(3) : 0);
 
             //Gain Focus
             if (!this->has_focus(&receiver))
@@ -1134,17 +1134,17 @@ void InputOutput::release_mouse(std::int32_t button) noexcept
 
         std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-        bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
-        bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
+        bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
+        bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
         bool isDragging = mouse_buttons[0] || mouse_buttons[1] || mouse_buttons[2];
 
         //Button priority is 1 (left), 3 (right), 2 (middle)
         mouse_buttons[SimbaMouseButtonToJava(button) - 1] = false;
 
         std::int32_t button = mouse_buttons[0] ? 1 : mouse_buttons[2] ? 3 : mouse_buttons[1] ? 2 : 0;
-        std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[0]) : 0) |
-                                  (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[1]) : 0) |
-                                  (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[2]) : 0);
+        std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
+                                  (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
+                                  (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(3) : 0);
 
         //Key extended masks
         buttonMask |= GetActiveKeyModifiers();
@@ -1172,8 +1172,8 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
     JNIEnv* env = receiver.getEnv();
     this->handle_resize(&receiver);
 
-    bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
-    bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x > static_cast<std::int32_t>(this->w) || this->y > static_cast<std::int32_t>(this->h));
+    bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
+    bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
 
     if (isRequestedPositionInsideComponent && isMouseInsideComponent)
     {
@@ -1222,9 +1222,9 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
         }
 
         //Button priority is 1 (left), 3 (right), 2 (middle)
-        std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[0]) : 0) |
-                                  (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[1]) : 0) |
-                                  (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(mouse_buttons[2]) : 0);
+        std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
+                                  (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
+                                  (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(3) : 0);
 
         //Key extended masks
         buttonMask |= GetActiveKeyModifiers();
