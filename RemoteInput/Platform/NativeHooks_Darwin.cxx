@@ -50,12 +50,24 @@ bool can_render(jint srctype, jint width, jint height)
     return width >= 200 && height >= 200;
 }
 
+//The real Java_sun_java2d_loops_Blit_Blit, kept so the fallback paths can still draw.
+//RegisterNatives only swaps the JVM's method-table entry; it does not touch this C symbol.
+static void (*o_JavaNativeBlit)(JNIEnv*, jobject, jobject, jobject, jobject, jobject, jint, jint, jint, jint, jint, jint) = nullptr;
+
+static inline void call_original_blit(JNIEnv *env, jobject self, jobject srcData, jobject dstData, jobject comp, jobject clip, jint srcx, jint srcy, jint dstx, jint dsty, jint width, jint height) noexcept
+{
+    if (o_JavaNativeBlit)
+    {
+        o_JavaNativeBlit(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
+    }
+}
+
 void JavaNativeBlit(JNIEnv *env, jobject self, jobject srcData, jobject dstData, jobject comp, jobject clip, jint srcx, jint srcy, jint dstx, jint dsty, jint width, jint height) noexcept
 {
     extern std::unique_ptr<ControlCenter> control_center;
     if (!control_center || !can_render(-1, width, height))
     {
-        return native_hook->call<void, decltype(JavaNativeBlit)>(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
+        return call_original_blit(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
     }
 
     #define Region_IsRectangular(pRgnInfo) ((pRgnInfo)->endIndex == 0)
@@ -69,21 +81,21 @@ void JavaNativeBlit(JNIEnv *env, jobject self, jobject srcData, jobject dstData,
     static SurfaceDataOps* (*SurfaceData_GetOps)(JNIEnv *env, jobject sData) = reinterpret_cast<decltype(SurfaceData_GetOps)>(dlsym(RTLD_DEFAULT, "SurfaceData_GetOps"));
     static jint (*Region_GetInfo)(JNIEnv *env, jobject region, RegionData *pRgnInfo) = reinterpret_cast<decltype(Region_GetInfo)>(dlsym(RTLD_DEFAULT, "Region_GetInfo"));
     static void (*SurfaceData_IntersectBounds)(SurfaceDataBounds *src, SurfaceDataBounds *dst) = reinterpret_cast<decltype(SurfaceData_IntersectBounds)>(dlsym(RTLD_DEFAULT, "SurfaceData_IntersectBounds"));
-    static void (*SurfaceData_IntersectBlitBounds)(SurfaceDataBounds *src, SurfaceDataBounds *dst, jint dx, jint dy) = reinterpret_cast<decltype(SurfaceData_IntersectBlitBounds)>(dlsym(RTLD_NEXT, "SurfaceData_IntersectBlitBounds"));
+    static void (*SurfaceData_IntersectBlitBounds)(SurfaceDataBounds *src, SurfaceDataBounds *dst, jint dx, jint dy) = reinterpret_cast<decltype(SurfaceData_IntersectBlitBounds)>(dlsym(RTLD_DEFAULT, "SurfaceData_IntersectBlitBounds"));
     static void (*Region_StartIteration)(JNIEnv *env, RegionData *pRgnInfo) = reinterpret_cast<decltype(Region_StartIteration)>(dlsym(RTLD_DEFAULT, "Region_StartIteration"));
     static jint (*Region_NextIteration)(RegionData *pRgnInfo, SurfaceDataBounds *pSpan) = reinterpret_cast<decltype(Region_NextIteration)>(dlsym(RTLD_DEFAULT, "Region_NextIteration"));
     static void (*Region_EndIteration)(JNIEnv *env, RegionData *pRgnInfo) = reinterpret_cast<decltype(Region_EndIteration)>(dlsym(RTLD_DEFAULT, "Region_EndIteration"));
 
     if (!GetNativePrim || !SurfaceData_GetOps || !Region_GetInfo || !SurfaceData_IntersectBounds || !SurfaceData_IntersectBlitBounds || !Region_StartIteration || !Region_NextIteration || !Region_EndIteration || width <= 0 || height <= 0)
     {
-        return native_hook->call<void, decltype(JavaNativeBlit)>(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
+        return call_original_blit(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
     }
 
     CompositeInfo compInfo = {0};
     NativePrimitive* pPrim = GetNativePrim(env, self);
     if (!pPrim)
     {
-        return native_hook->call<void, decltype(JavaNativeBlit)>(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
+        return call_original_blit(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
     }
 
     if (pPrim->pCompType->getCompInfo)
@@ -94,7 +106,7 @@ void JavaNativeBlit(JNIEnv *env, jobject self, jobject srcData, jobject dstData,
     RegionData clipInfo = {0};
     if (Region_GetInfo(env, clip, &clipInfo))
     {
-        return native_hook->call<void, decltype(JavaNativeBlit)>(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
+        return call_original_blit(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
     }
 
     SurfaceDataOps *srcOps = SurfaceData_GetOps(env, srcData);
@@ -102,7 +114,7 @@ void JavaNativeBlit(JNIEnv *env, jobject self, jobject srcData, jobject dstData,
 
     if (!srcOps || !dstOps)
     {
-        return native_hook->call<void, decltype(JavaNativeBlit)>(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
+        return call_original_blit(env, self, srcData, dstData, comp, clip, srcx, srcy, dstx, dsty, width, height);
     }
 
     SurfaceDataRasInfo srcInfo = {0};
@@ -683,17 +695,13 @@ void HookRLAWTSwapBuffers(JNIEnv* env, jobject applet) noexcept
 void InitialiseHooks() noexcept
 {
     #if defined(USE_DETOURS)
-        //Hook Native Blit
-        void* blit = dlsym(RTLD_DEFAULT, "Java_sun_java2d_loops_Blit_Blit");
-        if (blit)
-        {
-            native_hook = std::make_unique<Hook>(reinterpret_cast<void*>(blit), reinterpret_cast<void*>(JavaNativeBlit));
-            native_hook->apply();
-        }
+        //The software blit is hooked with RegisterNatives in HookSoftwareBlit (StartHook), not rd_route.
+        //rd_route must overwrite the JDK's signed __text, which the kernel forbids on Apple Silicon, so
+        //the code patch silently failed and every capture stayed black. RegisterNatives patches no code.
 
         //Hook OpenGL Blit
         #if defined(HOOK_OPENGL_BLIT)
-        blit = dlsym(RTLD_DEFAULT, "OGLBlitLoops_Blit");
+        void* blit = dlsym(RTLD_DEFAULT, "OGLBlitLoops_Blit");
         if (blit)
         {
             opengl_blit_hook = std::make_unique<Hook>(reinterpret_cast<void*>(blit), reinterpret_cast<void*>(JavaNativeOGLBlit));
@@ -721,6 +729,34 @@ void InitialiseHooks() noexcept
     #endif
 }
 
+//Sends sun.java2d.loops.Blit.Blit (the software blit) to JavaNativeBlit with RegisterNatives.
+//This replaces the rd_route code patch, which cannot write the JDK's signed pages on arm64.
+void HookSoftwareBlit(JNIEnv* env) noexcept
+{
+    if (!o_JavaNativeBlit)
+    {
+        o_JavaNativeBlit = reinterpret_cast<decltype(o_JavaNativeBlit)>(dlsym(RTLD_DEFAULT, "Java_sun_java2d_loops_Blit_Blit"));
+    }
+
+    jclass blit_class = env->FindClass("sun/java2d/loops/Blit");
+    if (!blit_class)
+    {
+        env->ExceptionClear();
+        return;
+    }
+
+    JNINativeMethod method = {
+        const_cast<char*>("Blit"),
+        const_cast<char*>("(Lsun/java2d/SurfaceData;Lsun/java2d/SurfaceData;Ljava/awt/Composite;Lsun/java2d/pipe/Region;IIIIII)V"),
+        reinterpret_cast<void*>(JavaNativeBlit)
+    };
+    if (env->RegisterNatives(blit_class, &method, 1) != JNI_OK)
+    {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(blit_class);
+}
+
 void StartHook() noexcept
 {
     InitialiseHooks();
@@ -728,6 +764,7 @@ void StartHook() noexcept
     extern std::unique_ptr<ControlCenter> control_center;
     java::Applet applet = control_center->reflect_applet();
     HookRLAWTSwapBuffers(applet.getEnv(), applet.get());
+    HookSoftwareBlit(applet.getEnv());
 
     //Signal that all hooks are finished initializing..
     ControlCenter::signal_sync(getpid());
