@@ -168,7 +168,7 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
 std::unique_ptr<Reflection> Reflection::Clone() noexcept
 {
     JNIEnv* new_env = nullptr;
-    if (JVM(env).AttachCurrentThread(&new_env) == JNI_OK)
+    if (JVM(env).AttachCurrentThreadAsDaemon(&new_env) == JNI_OK)
     {
         auto reflection = std::unique_ptr<Reflection>(new Reflection());
         reflection->env = new_env;
@@ -183,7 +183,8 @@ std::unique_ptr<Reflection> Reflection::Clone() noexcept
 
 bool Reflection::Attach() noexcept
 {
-    return JVM().AttachCurrentThread(&env) == JNI_OK;
+    //Daemon: the command thread attaches here and never detaches, and the JVM's exit through DestroyJavaVM waits for every non-daemon thread.
+    return JVM().AttachCurrentThreadAsDaemon(&env) == JNI_OK;
 }
 
 bool Reflection::Detach() noexcept
