@@ -332,7 +332,7 @@ std::unique_ptr<Reflection> GetNativeReflector() noexcept
 
     JVM vm = JVM();
     JNIEnv* env = nullptr;
-    if (vm.AttachCurrentThread(&env) == JNI_OK)
+    if (vm.AttachCurrentThreadAsDaemon(&env) == JNI_OK)
     {
         std::unique_ptr<Reflection> reflection;
         bool hasReflection = TimeOut(20, [&]{
