@@ -25,6 +25,7 @@ extern "C" {
 #include <sys/syscall.h>
 #include <mach-o/dyld.h>
 #include <filesystem>
+#include <cmath>
 #endif // defined
 
 #if defined(__APPLE__)
@@ -49,6 +50,14 @@ void GetDesktopResolution(int &width, int &height) noexcept
     }
 
     get_screen_resolution();
+}
+
+void GetInputTimings(std::int32_t &key_repeat_delay, std::int32_t &key_repeat_interval, std::int32_t &double_click_time) noexcept
+{
+    //The user's settings in ms: the OS repeats a held key and AppKit counts clicks with these.
+    key_repeat_delay = static_cast<std::int32_t>(std::lround(NSEvent.keyRepeatDelay * 1000.0));
+    key_repeat_interval = static_cast<std::int32_t>(std::lround(NSEvent.keyRepeatInterval * 1000.0));
+    double_click_time = static_cast<std::int32_t>(std::lround(NSEvent.doubleClickInterval * 1000.0));
 }
 
 std::int32_t GetCurrentThreadID() noexcept

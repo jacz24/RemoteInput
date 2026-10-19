@@ -27,6 +27,10 @@ std::vector<std::string> GetLoadedModuleNames(const char* partial_module_name) n
 void* GetModuleHandle(const char* module_name) noexcept;
 #endif
 
+#if defined(__APPLE__)
+void GetInputTimings(std::int32_t &key_repeat_delay, std::int32_t &key_repeat_interval, std::int32_t &double_click_time) noexcept;
+#endif
+
 template<typename T>
 void yield_thread(std::chrono::duration<std::int64_t, T> time) noexcept
 {

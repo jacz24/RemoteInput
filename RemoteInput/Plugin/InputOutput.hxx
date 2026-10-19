@@ -41,6 +41,12 @@ private:
     std::size_t w;
     std::size_t h;
     std::int32_t click_count;
+    std::int32_t click_button; // The button, time and place of the last press: the next press counts up from them.
+    std::int64_t click_when;
+    std::int32_t click_x;
+    std::int32_t click_y;
+    std::int64_t double_click_time; // In ms, as the OS counts clicks. 500 is X's default; the constructor reads Windows' and the Mac's.
+    std::int32_t clickable_buttons; // Down masks of the held buttons with no drag since their press: their release posts MOUSE_CLICKED (AWT's mouseClickButtons).
     std::size_t keyboard_speed;
     std::size_t keyboard_repeat_delay;
     bool mouse_buttons[3];

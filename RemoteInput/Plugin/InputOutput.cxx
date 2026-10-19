@@ -97,7 +97,20 @@ static java::KeyEvent::KeyCodes control_keys_locations[] = {
     java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD
 };
 
-InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), repeat_task(0), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
+//MouseEvent.isPopupTrigger as real AWT sets it on each platform.
+static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t modifiers) noexcept
+{
+    #if defined(_WIN32) || defined(_WIN64)
+    return id == java::MouseEvent::MouseEventCodes::MOUSE_RELEASED && button == 3;
+    #elif defined(__APPLE__)
+    //NSEvent.isPopupTrigger: any event with the right button down, or Ctrl with the left.
+    return (modifiers & java::InputEvent::BUTTON3_DOWN_MASK) || ((modifiers & java::InputEvent::CTRL_DOWN_MASK) && (modifiers & java::InputEvent::BUTTON1_DOWN_MASK));
+    #else
+    return id == java::MouseEvent::MouseEventCodes::MOUSE_PRESSED && button == 3;
+    #endif
+}
+
+InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), repeat_task(0), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), click_button(0), click_when(0), click_x(0), click_y(0), double_click_time(500), clickable_buttons(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
 {
     reflection->getEnv()->GetJavaVM(&vm);
 
@@ -109,7 +122,8 @@ InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(
     };
 
     #if defined(_WIN32) || defined(_WIN64)
-        #if defined(WINDOWS_SYSTEM_INPUT_INFO)
+        this->double_click_time = GetDoubleClickTime();
+
         //0 (approximately 250 ms delay) through 3 (approximately 1 second delay).
         std::int32_t keyboard_delay = 0;
         SystemParametersInfo(SPI_GETKEYBOARDDELAY, 0, reinterpret_cast<void*>(&keyboard_delay), 0);
@@ -126,22 +140,16 @@ InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(
 
         float repeat_rate = scale_to_range(keyboard_repeat_speed, 0, 31, 2.5, 30);
         repeat_rate += repeat_rate * Random::instance()->generate_random_float(0.0, 0.20);
-        this->keyboard_speed = round(60.0 / repeat_rate);
-        #else
-        //Windows default is 250ms delay and 24ms repeat rate
-        this->keyboard_repeat_delay = scale_to_range(0, 0, 3, 250, 1000) + Random::instance()->generate_random_int(-2, 2);
-
-        float repeat_rate = scale_to_range(0, 0, 31, 2.5, 30);
-        repeat_rate += repeat_rate * Random::instance()->generate_random_float(0.0, 0.20);
-        this->keyboard_speed = round(60.0 / repeat_rate);
-        #endif
+        this->keyboard_speed = round(1000.0 / repeat_rate);
     #elif defined(__APPLE__)
-        //MacOS default is 225ms delay and 15ms repeat rate
-        this->keyboard_repeat_delay = scale_to_range(15, 15, 120, 225, 1800) + Random::instance()->generate_random_int(-2, 2);
-
-        float repeat_rate = scale_to_range(1, 2, 120, 30, 1800);
-        repeat_rate += repeat_rate * Random::instance()->generate_random_float(0.0, 0.20);
-        this->keyboard_speed = round(repeat_rate);
+        //The user's settings, with no jitter: the OS repeats a held key on its own timer.
+        std::int32_t key_repeat_delay = 0;
+        std::int32_t key_repeat_interval = 0;
+        std::int32_t click_time = 0;
+        GetInputTimings(key_repeat_delay, key_repeat_interval, click_time);
+        this->keyboard_repeat_delay = key_repeat_delay;
+        this->keyboard_speed = key_repeat_interval;
+        this->double_click_time = click_time;
     #else
         //Linux default is 660ms delay and 25ms repeat rate
         this->keyboard_repeat_delay = scale_to_range(44, 15, 120, 225, 1800) + Random::instance()->generate_random_int(-2, 2);
@@ -290,6 +298,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
 
                 JNIEnv* env = receiver.getEnv();
                 std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                auto pressed_at = std::chrono::steady_clock::now();
                 std::int32_t modifiers = GetActiveKeyModifiers();
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
@@ -315,11 +324,11 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 if (this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
                 {
                     std::uint32_t task = ++repeat_task;
-                    input_thread->add_task([&, task](std::atomic_bool &stopped) {
-                        if (this->keyboard_repeat_delay > 0)
-                        {
-                            yield_thread(std::chrono::milliseconds(this->keyboard_repeat_delay));
-                        }
+
+                    //Repeats keep the OS timer's schedule from the press: the first after the delay, then one each interval, however long a post takes.
+                    auto next = pressed_at + std::chrono::milliseconds(this->keyboard_repeat_delay);
+                    input_thread->add_task([&, task, next](std::atomic_bool &stopped) mutable {
+                        std::this_thread::sleep_until(next);
 
                         //A key released within the repeat delay never repeats, as on a keyboard: end before the attach.
                         if (currently_held_key == -1 || repeat_task != task)
@@ -343,10 +352,12 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 break;
                             }
 
-                            if (this->keyboard_speed > 0)
-                            {
-                                yield_thread(std::chrono::milliseconds(this->keyboard_speed));
-                            }
+                            std::this_thread::sleep_until(next);
+
+                            //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
+                            auto now = std::chrono::steady_clock::now();
+                            auto interval = std::chrono::milliseconds(this->keyboard_speed);
+                            next = (now - next >= interval ? now : next) + interval;
 
                             //Read the key after the sleep: a release or a newer task during the sleep ends this one, with no press after the release.
                             //release_key takes the same lock, so a release cannot come between this check and the last post below.
@@ -1033,6 +1044,19 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
     //Key extended masks
     buttonMask |= GetActiveKeyModifiers();
 
+    //A held button that stays put is no drag: the OS posts nothing.
+    if (isDragging && x == this->x && y == this->y)
+    {
+        return;
+    }
+
+    //A move with a button held is a drag: no held button posts MOUSE_CLICKED, and AppKit gives the drag and the release after it clickCount 0.
+    if (isDragging)
+    {
+        click_count = 0;
+        clickable_buttons = 0;
+    }
+
     if (isRequestedPositionInsideComponent && !isMouseInsideComponent)
     {
         //MOUSE_ENTERED
@@ -1052,7 +1076,7 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
         if (isDragging)
         {
             this->x = x; this->y = y;
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, click_count, false, button);
+            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), button);
         }
         else
         {
@@ -1066,7 +1090,7 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
         this->x = x; this->y = y;
         if (isDragging)
         {
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, click_count, false, button);
+            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), button);
         }
     }
 }
@@ -1090,12 +1114,22 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
         {
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-            //Button priority is 1 (left), 3 (right), 2 (middle)
-            mouse_buttons[SimbaMouseButtonToJava(button) - 1] = true;
-            std::int32_t button = mouse_buttons[0] ? 1 : mouse_buttons[2] ? 3 : mouse_buttons[1] ? 2 : 0;
+            //The press reports the pressed button; the mask carries every held one
+            std::int32_t pressed = SimbaMouseButtonToJava(button);
+            mouse_buttons[pressed - 1] = true;
             std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
                                       (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
                                       (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(3) : 0);
+
+            //A press of the same button within the double-click time and a few px of the last press counts up, as AWT counts.
+            //shortcut: a fixed 4 px, Windows' default SM_CXDOUBLECLK; read the OS's own value if a platform needs it.
+            bool isMultiClick = pressed == click_button && when - click_when <= double_click_time && std::abs(this->x - click_x) <= 4 && std::abs(this->y - click_y) <= 4;
+            click_count = isMultiClick ? click_count + 1 : 1;
+            click_button = pressed;
+            click_when = when;
+            click_x = this->x;
+            click_y = this->y;
+            clickable_buttons |= java::InputEvent::GetDownMaskForButton(pressed);
 
             //Gain Focus
             if (!this->has_focus(&receiver))
@@ -1105,7 +1139,7 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
 
             //Key extended masks
             buttonMask |= GetActiveKeyModifiers();
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_PRESSED, when, buttonMask, this->x, this->y, click_count, false, button);
+            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_PRESSED, when, buttonMask, this->x, this->y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_PRESSED, pressed, buttonMask), pressed);
         }
         else
         {
@@ -1136,26 +1170,30 @@ void InputOutput::release_mouse(std::int32_t button) noexcept
 
         bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
         bool isMouseInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
-        bool isDragging = mouse_buttons[0] || mouse_buttons[1] || mouse_buttons[2];
 
-        //Button priority is 1 (left), 3 (right), 2 (middle)
-        mouse_buttons[SimbaMouseButtonToJava(button) - 1] = false;
+        //The release reports the released button; the mask carries the ones still held
+        std::int32_t released = SimbaMouseButtonToJava(button);
+        mouse_buttons[released - 1] = false;
 
-        std::int32_t button = mouse_buttons[0] ? 1 : mouse_buttons[2] ? 3 : mouse_buttons[1] ? 2 : 0;
         std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
                                   (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
                                   (mouse_buttons[2] ? java::InputEvent::GetDownMaskForButton(3) : 0);
+
+        //No drag since the press of this button (move_mouse clears the bit)
+        std::int32_t releasedMask = java::InputEvent::GetDownMaskForButton(released);
+        bool isClick = clickable_buttons & releasedMask;
+        clickable_buttons &= ~releasedMask;
 
         //Key extended masks
         buttonMask |= GetActiveKeyModifiers();
 
         //MOUSE_RELEASED
-        java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_RELEASED, when, buttonMask, this->x, this->y, click_count, false, button);
+        java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_RELEASED, when, buttonMask, this->x, this->y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_RELEASED, released, buttonMask), released);
 
-        if (!isDragging && isRequestedPositionInsideComponent && isMouseInsideComponent)
+        if (isClick && isRequestedPositionInsideComponent && isMouseInsideComponent)
         {
             //MOUSE_CLICKED
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_CLICKED, when, buttonMask, this->x, this->y, click_count, false, button);
+            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_CLICKED, when, buttonMask, this->x, this->y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_CLICKED, released, buttonMask), released);
         }
     }
 }
