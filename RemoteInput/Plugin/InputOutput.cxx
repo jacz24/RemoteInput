@@ -59,9 +59,11 @@ enum ControlKeys : std::uint32_t
     VK_RETURN = 0x0D
 };
 
+//VK_SHIFT is the code Simba sends for Shift (EKeyCode.SHIFT); a held Shift posts one press and never repeats, as on the Mac.
 static ControlKeys control_keys[] = {
     ControlKeys::VK_FUNCTION,
     ControlKeys::VK_NUM_LOCK,
+    ControlKeys::VK_SHIFT,
     ControlKeys::VK_LSHIFT,
     ControlKeys::VK_RSHIFT,
     ControlKeys::VK_LEFT_CONTROL,
@@ -242,49 +244,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
         }
         else
         {
-            //Key already being pressed so just replace it
-            if (currently_held_key != -1 && this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
-            {
-                currently_held_key = code;
-                held_keys.push_back(code);
-
-                //Post Event
-                java::Component receiver = control_center->reflect_canvas();
-                if (!this->has_focus(&receiver))
-                {
-                    this->gain_focus(&receiver);
-                }
-
-                JNIEnv* env = receiver.getEnv();
-                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                std::int32_t modifiers = GetActiveKeyModifiers();
-                std::int32_t keycode = GetJavaKeyCode(code);
-                std::int32_t location = GetKeyLocation(code);
-
-                java::KeyEvent::Post(env,
-                                     &receiver,
-                                     java::KeyEvent::KeyCodes::KEY_PRESSED,
-                                     when,
-                                     modifiers,
-                                     keycode,
-                                     NativeKeyCodeToChar(code, modifiers),
-                                     location);
-
-                java::KeyEvent::Post(env,
-                                     &receiver,
-                                     java::KeyEvent::KeyCodes::KEY_TYPED,
-                                     when,
-                                     modifiers,
-                                     0,
-                                     NativeKeyCodeToChar(code, modifiers),
-                                     java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
-
-                if (this->keyboard_repeat_delay > 0)
-                {
-                    yield_thread(std::chrono::milliseconds(this->keyboard_repeat_delay));
-                }
-            }
-            else
+            //A key pressed while another is held (rollover) takes the same path: its repeat task ends the held key's, as a keyboard repeats only the newest key.
             {
                 currently_held_key = code;
                 held_keys.push_back(code);
