@@ -25,7 +25,10 @@ JAVA="$(real_java)"
 
 # The library must not load from under ~/Documents: dyld holds its open() for a folder-access
 # prompt and the process hangs before main. Copy it to the temp dir and inject from there.
+# Remove the old copy first: cp over it keeps its vnode, and the kernel can kill the target
+# on the stale signature.
 DYLIB="${TMPDIR:-/tmp}/libRemoteInput.dylib"
+rm -f "$DYLIB"
 cp "$DYLIB_SRC" "$DYLIB"
 
 mkdir -p "$OUT"
