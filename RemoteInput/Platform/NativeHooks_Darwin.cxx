@@ -666,9 +666,9 @@ void HookRLAWTSwapBuffers(JNIEnv* env, jobject applet) noexcept
     };
 
     jclass applet_class = env->GetObjectClass(applet);
-    jclass class_class = env->FindClass("java/lang/Class");
-    jclass loader_class = env->FindClass("java/lang/ClassLoader");
-    jobject loader = checked(env->CallObjectMethod(applet_class, env->GetMethodID(class_class, "getClassLoader", "()Ljava/lang/ClassLoader;")));
+    jclass class_class = static_cast<jclass>(checked(env->FindClass("java/lang/Class")));
+    jclass loader_class = class_class ? static_cast<jclass>(checked(env->FindClass("java/lang/ClassLoader"))) : nullptr;
+    jobject loader = loader_class ? checked(env->CallObjectMethod(applet_class, env->GetMethodID(class_class, "getClassLoader", "()Ljava/lang/ClassLoader;"))) : nullptr;
     jstring name = env->NewStringUTF("net.runelite.rlawt.AWTContext");
     jobject context = loader ? checked(env->CallObjectMethod(loader, env->GetMethodID(loader_class, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;"), name)) : nullptr;
 
@@ -761,10 +761,15 @@ void StartHook() noexcept
 {
     InitialiseHooks();
 
-    extern std::unique_ptr<ControlCenter> control_center;
-    java::Applet applet = control_center->reflect_applet();
-    HookRLAWTSwapBuffers(applet.getEnv(), applet.get());
-    HookSoftwareBlit(applet.getEnv());
+    //This thread's own env, which GetNativeReflector attached: the reflector's env becomes the command thread's once Reflection::Attach runs there.
+    JNIEnv* env = nullptr;
+    if (JVM().getVM()->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_8) == JNI_OK)
+    {
+        extern std::unique_ptr<ControlCenter> control_center;
+        java::Applet applet = control_center->reflect_applet(env);
+        HookRLAWTSwapBuffers(env, applet.get());
+        HookSoftwareBlit(env);
+    }
 
     //Signal that all hooks are finished initializing..
     ControlCenter::signal_sync(getpid());

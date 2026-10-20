@@ -1955,7 +1955,7 @@ jlong ControlCenter::reflect_frame_native_handle() const noexcept
 
 jlong ControlCenter::reflect_applet_native_handle() const noexcept
 {
-    return main_reflector->getNativeHandle(reflect_applet().get());
+    return main_reflector->getNativeHandle(reflect_applet(main_reflector->getEnv()).get());
 }
 
 jlong ControlCenter::reflect_canvas_native_handle() const noexcept
@@ -1963,9 +1963,9 @@ jlong ControlCenter::reflect_canvas_native_handle() const noexcept
     return main_reflector->getNativeHandle(reflect_canvas().get());
 }
 
-java::Applet ControlCenter::reflect_applet() const noexcept
+java::Applet ControlCenter::reflect_applet(JNIEnv* env) const noexcept
 {
-    return {main_reflector->getEnv(), main_reflector->getApplet(), false};
+    return {env, main_reflector->getApplet(), false};
 }
 
 java::Component ControlCenter::reflect_canvas() const noexcept

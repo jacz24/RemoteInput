@@ -151,7 +151,7 @@ public:
     jlong reflect_frame_native_handle() const noexcept;
     jlong reflect_applet_native_handle() const noexcept;
     jlong reflect_canvas_native_handle() const noexcept;
-    java::Applet reflect_applet() const noexcept;
+    java::Applet reflect_applet(JNIEnv* env) const noexcept;
     java::Component reflect_canvas() const noexcept;
     std::unique_ptr<RemoteVM> create_remote_vm() noexcept;
 
