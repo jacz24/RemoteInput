@@ -47,6 +47,7 @@ enum ControlKeys : std::uint32_t
     VK_CONTROL = 0x11,
     VK_LEFT_CONTROL = 0xA2,
     VK_RIGHT_CONTROL = 0xA3,
+    VK_ALT = 0x12, //VK_MENU
     VK_LEFT_ALT = 0xA4,
     VK_RIGHT_ALT = 0xA5,
 
@@ -59,45 +60,45 @@ enum ControlKeys : std::uint32_t
     VK_RETURN = 0x0D
 };
 
-//VK_SHIFT is the code Simba sends for Shift (EKeyCode.SHIFT); a held Shift posts one press and never repeats, as on the Mac.
+//Modifiers: a held one posts one press, no KEY_TYPED and no repeat, as on the Mac. VK_SHIFT, VK_CONTROL and VK_ALT are the codes Simba sends (EKeyCode.SHIFT, CONTROL, MENU).
+//Tab, Backspace and Enter are not here: they post a KEY_TYPED and repeat as a letter does.
 static ControlKeys control_keys[] = {
     ControlKeys::VK_FUNCTION,
     ControlKeys::VK_NUM_LOCK,
     ControlKeys::VK_SHIFT,
     ControlKeys::VK_LSHIFT,
     ControlKeys::VK_RSHIFT,
+    ControlKeys::VK_CONTROL,
     ControlKeys::VK_LEFT_CONTROL,
     ControlKeys::VK_RIGHT_CONTROL,
+    ControlKeys::VK_ALT,
     ControlKeys::VK_LEFT_ALT,
     ControlKeys::VK_RIGHT_ALT,
     ControlKeys::VK_COMMAND,
     ControlKeys::VK_LEFT_WINDOWS,
     ControlKeys::VK_RIGHT_WINDOWS,
-    ControlKeys::VK_APPS,
-    ControlKeys::VK_TAB,
-    ControlKeys::VK_BACK,
-    ControlKeys::VK_RETURN
+    ControlKeys::VK_APPS
 };
 
+//The location of each key in control_keys, in the same order. A key with no side (VK_SHIFT) is the left one, as real AWT gives for java.awt.Robot's.
 static java::KeyEvent::KeyCodes control_keys_locations[] = {
-    java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD,
-    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD
+    java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN,  //VK_FUNCTION
+    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD, //VK_NUM_LOCK
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_SHIFT
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_LSHIFT
+    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,    //VK_RSHIFT
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_CONTROL
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_LEFT_CONTROL
+    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,    //VK_RIGHT_CONTROL
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_ALT
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_LEFT_ALT
+    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,    //VK_RIGHT_ALT
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_COMMAND
+    java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_LEFT_WINDOWS
+    java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,    //VK_RIGHT_WINDOWS
+    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD  //VK_APPS
 };
+static_assert(std::size(control_keys) == std::size(control_keys_locations), "one location for each control key");
 
 //MouseEvent.isPopupTrigger as real AWT sets it on each platform.
 static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t modifiers) noexcept
@@ -1400,9 +1401,9 @@ std::int32_t InputOutput::GetJavaKeyCode(std::int32_t native_key_code) const noe
 
 std::int32_t InputOutput::GetKeyLocation(std::int32_t keycode) const noexcept
 {
-    if (std::find(std::begin(control_keys), std::end(control_keys), keycode) != std::end(control_keys))
+    if (auto it = std::find(std::begin(control_keys), std::end(control_keys), keycode); it != std::end(control_keys))
     {
-        return control_keys_locations[keycode];
+        return control_keys_locations[std::distance(std::begin(control_keys), it)];
     }
     return java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD;
 }
@@ -1422,7 +1423,7 @@ std::int32_t InputOutput::GetActiveKeyModifiers() const noexcept
         modifiers |= java::InputEvent::InputEventMasks::CTRL_DOWN_MASK;
     }
 
-    if (this->is_key_held(VK_LEFT_ALT))
+    if (this->any_key_held({VK_ALT, VK_LEFT_ALT}))
     {
         modifiers |= java::InputEvent::InputEventMasks::ALT_DOWN_MASK;
     }

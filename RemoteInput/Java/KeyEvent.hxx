@@ -36,7 +36,7 @@ namespace java
             KEY_RELEASED = 402,
 
             VK_UNDEFINED = 0x0,
-            CHAR_UNDEFINED = 0xFF,
+            CHAR_UNDEFINED = 0xFFFF,
             KEY_LOCATION_UNKNOWN = 0x0,
             KEY_LOCATION_STANDARD = 0x1,
             KEY_LOCATION_LEFT = 0x2,
