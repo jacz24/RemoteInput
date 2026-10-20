@@ -60,8 +60,7 @@ enum ControlKeys : std::uint32_t
     VK_RETURN = 0x0D
 };
 
-//Modifiers: a held one posts one press, no KEY_TYPED and no repeat, as on the Mac. VK_SHIFT, VK_CONTROL and VK_ALT are the codes Simba sends (EKeyCode.SHIFT, CONTROL, MENU).
-//Tab, Backspace and Enter are not here: they post a KEY_TYPED and repeat as a letter does.
+//A held control key posts one press, no KEY_TYPED and no repeat, as a Mac modifier does; VK_SHIFT, VK_CONTROL and VK_ALT are the codes Simba sends.
 static ControlKeys control_keys[] = {
     ControlKeys::VK_FUNCTION,
     ControlKeys::VK_NUM_LOCK,
@@ -83,7 +82,7 @@ static ControlKeys control_keys[] = {
 //The location of each key in control_keys, in the same order. A key with no side (VK_SHIFT) is the left one, as real AWT gives for java.awt.Robot's.
 static java::KeyEvent::KeyCodes control_keys_locations[] = {
     java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN,  //VK_FUNCTION
-    java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD, //VK_NUM_LOCK
+    java::KeyEvent::KeyCodes::KEY_LOCATION_NUMPAD,   //VK_NUM_LOCK
     java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_SHIFT
     java::KeyEvent::KeyCodes::KEY_LOCATION_LEFT,     //VK_LSHIFT
     java::KeyEvent::KeyCodes::KEY_LOCATION_RIGHT,    //VK_RSHIFT
@@ -1423,7 +1422,7 @@ std::int32_t InputOutput::GetActiveKeyModifiers() const noexcept
         modifiers |= java::InputEvent::InputEventMasks::CTRL_DOWN_MASK;
     }
 
-    if (this->any_key_held({VK_ALT, VK_LEFT_ALT}))
+    if (this->is_key_held(VK_ALT) || this->is_key_held(VK_LEFT_ALT))
     {
         modifiers |= java::InputEvent::InputEventMasks::ALT_DOWN_MASK;
     }
