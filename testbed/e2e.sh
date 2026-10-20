@@ -23,6 +23,8 @@ real_java() {
 JAVA="$(real_java)"
 
 mkdir -p "$OUT"
+# A new file each run: cp over the old copy keeps its vnode, and the kernel can kill the target on the stale signature.
+rm -f "$DYLIB"
 cp "$DYLIB_SRC" "$DYLIB"                       # out of ~/Documents, or dyld hangs on a folder prompt
 javac "$ROOT/testbed/TestClient.java" -d "$OUT"
 cc -o "$OUT/driver" "$ROOT/testbed/driver.c"
