@@ -140,8 +140,8 @@ InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(
         std::int32_t keyboard_repeat_speed = 0;
         SystemParametersInfo(SPI_GETKEYBOARDSPEED, 0, reinterpret_cast<void*>(&keyboard_repeat_speed), 0);
 
+        //The user's setting, with no jitter: the OS repeats a held key on its own timer (#69).
         float repeat_rate = scale_to_range(keyboard_repeat_speed, 0, 31, 2.5, 30);
-        repeat_rate += repeat_rate * Random::instance()->generate_random_float(0.0, 0.20);
         this->keyboard_speed = round(1000.0 / repeat_rate);
     #elif defined(__APPLE__)
         //The user's settings, with no jitter: the OS repeats a held key on its own timer.
@@ -1010,10 +1010,18 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
         return;
     }
 
-    //A move with a button held is a drag: no held button posts MOUSE_CLICKED, and AppKit gives the drag and the release after it clickCount 0.
+    //A move with a button held is a drag: no held button posts MOUSE_CLICKED. AppKit gives the drag and the release after it clickCount 0;
+    //Windows gives the drag clickCount 0 and button 0, and the release keeps the press's count (#69).
+    #if defined(_WIN32) || defined(_WIN64)
+    std::int32_t drag_button = 0;
+    #else
+    std::int32_t drag_button = button;
+    #endif
     if (isDragging)
     {
+        #if !defined(_WIN32) && !defined(_WIN64)
         click_count = 0;
+        #endif
         clickable_buttons = 0;
     }
 
@@ -1036,7 +1044,7 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
         if (isDragging)
         {
             this->x = x; this->y = y;
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), button);
+            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, 0, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), drag_button);
         }
         else
         {
@@ -1050,7 +1058,7 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
         this->x = x; this->y = y;
         if (isDragging)
         {
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), button);
+            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, 0, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), drag_button);
         }
     }
 }
