@@ -64,11 +64,12 @@ public class TestClient {
                 System.out.flush();
             }
         });
-        // Log every mouse event the canvas gets, with its extended modifiers (probe_modifiers.sh reads these lines).
+        // Log every mouse event the canvas gets, with its age on arrival and its extended modifiers
+        // (probe_focus.sh and probe_modifiers.sh read these lines).
         Toolkit.getDefaultToolkit().addAWTEventListener(e -> {
             MouseEvent m = (MouseEvent) e;
             if (m.getSource() == canvas) {
-                System.out.println("RECV " + m.paramString() + ",modsEx=" + m.getModifiersEx());
+                System.out.println("RECV " + m.paramString() + ",age=" + (System.currentTimeMillis() - m.getWhen()) + ",modsEx=" + m.getModifiersEx());
                 System.out.flush();
             }
         }, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);

@@ -1072,6 +1072,12 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
         bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
         if (isRequestedPositionInsideComponent)
         {
+            //Gain Focus, before the press reads its time: gain_focus waits 200 ms or more
+            if (!this->has_focus(&receiver))
+            {
+                this->gain_focus(&receiver);
+            }
+
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
             //The press reports the pressed button; the mask carries every held one
@@ -1090,12 +1096,6 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
             click_x = this->x;
             click_y = this->y;
             clickable_buttons |= java::InputEvent::GetDownMaskForButton(pressed);
-
-            //Gain Focus
-            if (!this->has_focus(&receiver))
-            {
-                this->gain_focus(&receiver);
-            }
 
             //Key extended masks
             buttonMask |= GetActiveKeyModifiers();

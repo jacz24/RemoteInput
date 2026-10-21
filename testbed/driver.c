@@ -3,10 +3,10 @@
 // the frame, and injects input. It asserts from the captured pixels, so it needs no reflection API.
 //
 // Build:  cc -o testbed/out/driver testbed/driver.c
-// Run:    testbed/out/driver <pid> <dylib-path> [modifiers]
+// Run:    testbed/out/driver <pid> <dylib-path> [modifiers|focus]
 //
 // Checks: target dimensions, a red capture square, an injected mouse point (green), an injected key.
-// "modifiers" also injects the input of probe_modifiers.sh after the checks.
+// "modifiers" and "focus" also inject the input of probe_modifiers.sh or probe_focus.sh after the checks.
 
 #include <dlfcn.h>
 #include <stdio.h>
@@ -29,7 +29,7 @@ static void nap(int ms) {
 } while (0)
 
 int main(int argc, char** argv) {
-    if (argc < 3) { fprintf(stderr, "usage: %s <pid> <dylib> [modifiers]\n", argv[0]); return 2; }
+    if (argc < 3) { fprintf(stderr, "usage: %s <pid> <dylib> [modifiers|focus]\n", argv[0]); return 2; }
     int pid = atoi(argv[1]);
 
     void* h = dlopen(argv[2], RTLD_NOW);
@@ -41,6 +41,7 @@ int main(int argc, char** argv) {
     uint8_t* (*GetImageBuffer)(EIOS*);
     void (*UpdateImageBuffer)(EIOS*);
     void (*GainFocus)(EIOS*);
+    void (*LoseFocus)(EIOS*);
     void (*SetMouseInputEnabled)(EIOS*, bool);
     void (*SetKeyboardInputEnabled)(EIOS*, bool);
     void (*MoveMouse)(EIOS*, int32_t, int32_t);
@@ -54,6 +55,7 @@ int main(int argc, char** argv) {
     BIND(GetImageBuffer, "EIOS_GetImageBuffer");
     BIND(UpdateImageBuffer, "EIOS_UpdateImageBuffer");
     BIND(GainFocus, "EIOS_GainFocus");
+    BIND(LoseFocus, "EIOS_LoseFocus");
     BIND(SetMouseInputEnabled, "EIOS_SetMouseInputEnabled");
     BIND(SetKeyboardInputEnabled, "EIOS_SetKeyboardInputEnabled");
     BIND(MoveMouse, "EIOS_MoveMouse");
@@ -129,6 +131,15 @@ int main(int argc, char** argv) {
         MoveMouse(eios, 300, 200);    nap(50);
         MoveMouse(eios, 300, hgt);
         nap(500); // let the target log the events before e2e.sh stops it
+    }
+
+    // "focus" mode: probe_focus.sh checks the age of a press that has to regain focus first.
+    if (argc > 3 && strcmp(argv[3], "focus") == 0) {
+        MoveMouse(eios, 310, 210);         nap(50);
+        LoseFocus(eios);                   nap(50);
+        HoldMouse(eios, 310, 210, 1);      nap(50);
+        ReleaseMouse(eios, 310, 210, 1);
+        nap(500);
     }
 
     printf(fails ? "\n%d CHECK(S) FAILED\n" : "\nALL CHECKS PASSED\n", fails);
