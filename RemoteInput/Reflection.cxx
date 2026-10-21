@@ -41,6 +41,12 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
     using Result = std::unique_ptr<typename std::remove_pointer<jobject>::type, std::function<void(jobject)>>;
     auto IsDecendentOf = [](JNIEnv* env, jobject object, const char* className) -> bool {
         auto cls = make_safe_local<jclass>(env, env->FindClass(className));
+        if (!cls)
+        {
+            //JDK 26 removed java/applet/Applet (JEP 504): FindClass gives null and leaves a NoClassDefFoundError pending.
+            env->ExceptionClear();
+            return false;
+        }
         return env->IsInstanceOf(object, cls.get());
     };
 
@@ -59,8 +65,7 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
                 {
                     //Some java.awt.Panel.
                     auto component = make_safe_local<jobject>(env, env->GetObjectArrayElement(components.get(), i));
-                    auto applet_class = make_safe_local<jclass>(env, env->FindClass("java/applet/Applet"));
-                    if (env->IsInstanceOf(component.get(), applet_class.get()))
+                    if (IsDecendentOf(env, component.get(), "java/applet/Applet"))
                     {
                         return component;
                     }
@@ -92,8 +97,7 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
                 {
                     //Some java.awt.Panel.
                     auto component = make_safe_local<jobject>(env, env->GetObjectArrayElement(components.get(), i));
-                    auto canvas_class = make_safe_local<jclass>(env, env->FindClass("java/awt/Canvas"));
-                    if (env->IsInstanceOf(component.get(), canvas_class.get()))
+                    if (IsDecendentOf(env, component.get(), "java/awt/Canvas"))
                     {
                         return component;
                     }
@@ -261,6 +265,12 @@ std::string Reflection::GetClassType(jobject object) const noexcept
 bool Reflection::IsDecendentOf(jobject object, const char* className) const noexcept
 {
     auto cls = make_safe_local<jclass>(env, env->FindClass(className));
+    if (!cls)
+    {
+        //A script can name a class the JVM does not have.
+        env->ExceptionClear();
+        return false;
+    }
     return env->IsInstanceOf(object, cls.get());
 }
 
