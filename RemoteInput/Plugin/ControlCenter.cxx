@@ -1948,19 +1948,19 @@ std::size_t ControlCenter::reflect_size_for_type(ReflectionType type) noexcept
     return mapping[static_cast<std::underlying_type<ReflectionType>::type>(type)];
 }
 
-jlong ControlCenter::reflect_frame_native_handle() const noexcept
+jlong ControlCenter::reflect_frame_native_handle(JNIEnv* env) const noexcept
 {
-    return main_reflector->getFrameHandle();
+    return main_reflector->getFrameHandle(env);
 }
 
 jlong ControlCenter::reflect_applet_native_handle() const noexcept
 {
-    return main_reflector->getNativeHandle(reflect_applet(main_reflector->getEnv()).get());
+    return main_reflector->getNativeHandle(main_reflector->getEnv(), reflect_applet(main_reflector->getEnv()).get());
 }
 
 jlong ControlCenter::reflect_canvas_native_handle() const noexcept
 {
-    return main_reflector->getNativeHandle(reflect_canvas().get());
+    return main_reflector->getNativeHandle(main_reflector->getEnv(), reflect_canvas().get());
 }
 
 java::Applet ControlCenter::reflect_applet(JNIEnv* env) const noexcept
