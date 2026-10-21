@@ -542,7 +542,8 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
         yield_thread(std::chrono::milliseconds(lround(Random::instance()->generate_random_float(1.0, 1.1) * keywait)));
 
         //Modifier Key
-        if ((isShiftDown && i == string.length() - 1) || (n != '\0' && !(this->ModifiersForChar(n) & java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK)))
+        //Release Shift only when it is down: after the last character, or before one that needs no Shift.
+        if (isShiftDown && (i == string.length() - 1 || !(this->ModifiersForChar(n) & java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK)))
         {
             isShiftDown = false;
 
@@ -758,7 +759,8 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
         yield_thread(std::chrono::milliseconds(sleeptimes[sleepindex++]));
 
         //Modifier Key
-        if ((isShiftDown && i == string.length() - 1) || (n != '\0' && !(this->ModifiersForChar(n) & java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK)))
+        //Release Shift only when it is down: after the last character, or before one that needs no Shift.
+        if (isShiftDown && (i == string.length() - 1 || !(this->ModifiersForChar(n) & java::InputEvent::InputEventMasks::SHIFT_DOWN_MASK)))
         {
             isShiftDown = false;
 
