@@ -507,7 +507,8 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
         std::int32_t code = static_cast<std::int32_t>(c);
         std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t keycode = CharToJavaKeyCode(code);
-        std::int32_t location = GetKeyLocation(code);
+        //A character from text is never a control key: GetKeyLocation takes a key code, and '[' is VK_LEFT_WINDOWS's.
+        std::int32_t location = java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD;
 
         java::KeyEvent::Post(env,
                              &receiver,
@@ -612,7 +613,8 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
     std::int32_t code = static_cast<std::int32_t>(key);
     std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     std::int32_t keycode = CharToJavaKeyCode(code);
-    std::int32_t location = GetKeyLocation(code);
+    //A character is never a control key: GetKeyLocation takes a key code, and '[' is VK_LEFT_WINDOWS's.
+    std::int32_t location = java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD;
 
     java::KeyEvent::Post(env,
                          &receiver,
@@ -723,7 +725,8 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
         std::int32_t code = static_cast<std::int32_t>(c);
         std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t keycode = CharToJavaKeyCode(code);
-        std::int32_t location = GetKeyLocation(code);
+        //A character from text is never a control key: GetKeyLocation takes a key code, and '[' is VK_LEFT_WINDOWS's.
+        std::int32_t location = java::KeyEvent::KeyCodes::KEY_LOCATION_STANDARD;
 
         java::KeyEvent::Post(env,
                              &receiver,
