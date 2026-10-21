@@ -71,7 +71,8 @@ public:
         {
             return try_acquire();
         }
-        
+
+        //Unused, and fails to compile once called: timed_acquire takes a count, so this needs .count() (Simba-AI #485)
         return timed_acquire(std::chrono::duration_cast<std::chrono::nanoseconds>(duration));
     }
 
