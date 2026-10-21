@@ -159,6 +159,7 @@ void Semaphore::acquire() const
         return;
     }
     #endif
+    //An EINTR throws here, inside the noexcept Signal::wait, and ends in std::terminate; retry on EINTR if a crash points here (Simba-AI #485)
     if (sem_wait(static_cast<sem_t*>(hSem)))
     {
         throw std::system_error(errno, std::system_category());
@@ -217,11 +218,13 @@ bool Semaphore::timed_acquire(std::uint64_t nanoseconds) const noexcept
     #if defined(__APPLE__)
     if (owned && !shared)
     {
+        //Unreached (only try_acquire_for calls timed_acquire): dispatch_time takes nanoseconds, not milliseconds (Simba-AI #485)
         auto milli = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::nanoseconds(nanoseconds));
         dispatch_time_t time_out = dispatch_time(DISPATCH_TIME_NOW, milli.count());
         return !dispatch_semaphore_wait(static_cast<dispatch_semaphore_t>(hSem), time_out);
     }
     #endif
+    //Unreached: the Mac shim at the top takes a relative time, but Linux's own sem_timedwait takes an absolute one (Simba-AI #485)
     auto duration = std::chrono::nanoseconds(nanoseconds);
     auto seconds = std::chrono::duration_cast<std::chrono::seconds>(duration);
     std::chrono::nanoseconds nano_seconds = (duration - seconds);
