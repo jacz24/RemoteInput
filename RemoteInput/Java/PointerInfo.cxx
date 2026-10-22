@@ -57,7 +57,7 @@ namespace java
     {
         jclass cls = env->FindClass("java/awt/MouseInfo");
         static jmethodID methodId = env->GetStaticMethodID(cls, "getPointerInfo", "()Ljava/awt/PointerInfo;");
-        jobject pointerInfo = env->CallStaticObjectMethod(cls, methodId);
+        jobject pointerInfo = ClearException(env, env->CallStaticObjectMethod(cls, methodId));
         return PointerInfo{env, cls, pointerInfo};
     }
 
@@ -66,7 +66,7 @@ namespace java
         jclass pointInfoClass = env->FindClass("java/awt/PointerInfo");
         static jmethodID methodId = env->GetMethodID(pointInfoClass, "getLocation", "()Ljava/awt/Point;");
 
-        jobject object = env->CallObjectMethod(pointerInfo, methodId);
+        jobject object = ClearException(env, env->CallObjectMethod(pointerInfo, methodId));
         if (object)
         {
             jclass pointClass = env->FindClass("java/awt/Point");

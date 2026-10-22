@@ -485,7 +485,7 @@ std::unique_ptr<Reflection> GetNativeReflector() noexcept
                 return false;
             }
 
-            jobjectArray frames = static_cast<jobjectArray>(env->CallStaticObjectMethod(cls, method));
+            jobjectArray frames = static_cast<jobjectArray>(ClearException(env, env->CallStaticObjectMethod(cls, method)));
             env->DeleteLocalRef(cls);
             if (!frames)
             {

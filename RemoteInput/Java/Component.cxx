@@ -82,7 +82,7 @@ namespace java
         static jfieldID xFieldId = env->GetFieldID(pointClass, "x", "I");
         static jfieldID yFieldId = env->GetFieldID(pointClass, "y", "I");
 
-        jobject object = env->CallObjectMethod(component, methodId);
+        jobject object = ClearException(env, env->CallObjectMethod(component, methodId));
         if (object)
         {
             x = env->GetIntField(object, xFieldId);
@@ -105,7 +105,7 @@ namespace java
         static jfieldID xFieldId = env->GetFieldID(pointClass, "x", "I");
         static jfieldID yFieldId = env->GetFieldID(pointClass, "y", "I");
 
-        jobject object = env->CallObjectMethod(component, methodId);
+        jobject object = ClearException(env, env->CallObjectMethod(component, methodId));
         if (object)
         {
             x = env->GetIntField(object, xFieldId);
@@ -128,7 +128,7 @@ namespace java
         static jfieldID xFieldId = env->GetFieldID(pointClass, "x", "I");
         static jfieldID yFieldId = env->GetFieldID(pointClass, "y", "I");
 
-        jobject object = env->CallObjectMethod(component, methodId);
+        jobject object = ClearException(env, env->CallObjectMethod(component, methodId));
         if (object)
         {
             x = env->GetIntField(object, xFieldId);
@@ -148,14 +148,14 @@ namespace java
     {
         static jmethodID widthId = env->GetMethodID(cls, "getWidth", "()I");
         static jmethodID heightId = env->GetMethodID(cls, "getHeight", "()I");
-        width = env->CallIntMethod(component, widthId);
-        height = env->CallIntMethod(component, heightId);
+        width = ClearException(env, env->CallIntMethod(component, widthId));
+        height = ClearException(env, env->CallIntMethod(component, heightId));
     }
 
     Component Component::getComponentAt(std::int32_t x, std::int32_t y) const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "getComponentAt", "(II)Ljava/awt/Component;");
-        jobject object = env->CallObjectMethod(component, methodId, x, y);
+        jobject object = ClearException(env, env->CallObjectMethod(component, methodId, x, y));
         if (object)
         {
             env->DeleteLocalRef(std::exchange(object, env->NewGlobalRef(object)));
@@ -167,7 +167,7 @@ namespace java
     Container Component::getParent() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "getParent", "()Ljava/awt/Container;");
-        jobject object = env->CallObjectMethod(component, methodId);
+        jobject object = ClearException(env, env->CallObjectMethod(component, methodId));
         if (object)
         {
             env->DeleteLocalRef(std::exchange(object, env->NewGlobalRef(object)));
@@ -185,47 +185,50 @@ namespace java
     {
         static jmethodID methodId = env->GetMethodID(cls, "dispatchEvent", "(Ljava/awt/AWTEvent;)V");
         env->CallVoidMethod(component, methodId, event);
+        env->ExceptionClear();
     }
 
     bool Component::isVisible() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "isVisible", "()Z");
-        return env->CallBooleanMethod(component, methodId);
+        return ClearException(env, env->CallBooleanMethod(component, methodId));
     }
 
     bool Component::isValid() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "isValid", "()Z");
-        return env->CallBooleanMethod(component, methodId);
+        return ClearException(env, env->CallBooleanMethod(component, methodId));
     }
 
     bool Component::isEnabled() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "isEnabled", "()Z");
-        return env->CallBooleanMethod(component, methodId);
+        return ClearException(env, env->CallBooleanMethod(component, methodId));
     }
 
     void Component::setEnabled(bool enabled) const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "setEnabled", "(Z)V");
         env->CallVoidMethod(component, methodId, enabled);
+        env->ExceptionClear();
     }
 
     bool Component::hasFocus() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "hasFocus", "()Z");
-        return env->CallBooleanMethod(component, methodId);
+        return ClearException(env, env->CallBooleanMethod(component, methodId));
     }
 
     bool Component::requestFocusInWindow() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "requestFocusInWindow", "()Z");
-        return env->CallBooleanMethod(component, methodId);
+        return ClearException(env, env->CallBooleanMethod(component, methodId));
     }
 
     void Component::requestFocus() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "requestFocus", "()V");
         env->CallVoidMethod(component, methodId);
+        env->ExceptionClear();
     }
 }

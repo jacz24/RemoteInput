@@ -20,7 +20,7 @@ namespace java
     Component Frame::getContentPane() const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "getContentPane", "()Ljava/awt/Component;");
-        jobject object = env->CallObjectMethod(component, methodId);
+        jobject object = ClearException(env, env->CallObjectMethod(component, methodId));
         if (object)
         {
             env->DeleteLocalRef(std::exchange(object, env->NewGlobalRef(object)));

@@ -58,11 +58,13 @@ namespace java
     {
         static jmethodID methodId = env->GetMethodID(cls, "push", "(Ljava/awt/EventQueue;)V");
         env->CallVoidMethod(this->queue, methodId, queue->queue);
+        env->ExceptionClear();
     }
 
     void EventQueue::postEvent(AWTEvent* event) const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "postEvent", "(Ljava/awt/AWTEvent;)V");
         env->CallVoidMethod(queue, methodId, event->get());
+        env->ExceptionClear();
     }
 }

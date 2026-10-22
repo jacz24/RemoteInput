@@ -21,5 +21,6 @@ namespace java
     {
         static jmethodID methodId = env->GetMethodID(cls, "pack", "()V");
         env->CallVoidMethod(component, methodId);
+        env->ExceptionClear();
     }
 }

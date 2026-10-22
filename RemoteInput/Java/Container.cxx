@@ -23,7 +23,7 @@ namespace java
         static jmethodID methodId = env->GetMethodID(containerClass, "getComponent", "(I)Ljava/awt/Component;");
         env->DeleteLocalRef(containerClass);
 
-        jobject object = env->CallObjectMethod(this->component, methodId, index);
+        jobject object = ClearException(env, env->CallObjectMethod(this->component, methodId, index));
         if (object)
         {
             env->DeleteLocalRef(std::exchange(object, env->NewGlobalRef(object)));
@@ -38,6 +38,6 @@ namespace java
         static jmethodID methodId = env->GetMethodID(containerClass, "getComponentCount", "()I");
         env->DeleteLocalRef(containerClass);
 
-        return env->CallIntMethod(component, methodId);
+        return ClearException(env, env->CallIntMethod(component, methodId));
     }
 }
