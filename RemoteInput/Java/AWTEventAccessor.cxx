@@ -52,11 +52,13 @@ namespace java
     {
         static jmethodID methodId = env->GetMethodID(cls, "setSystemGenerated", "(Ljava/awt/AWTEvent;)V");
         env->CallVoidMethod(accessor, methodId, event->get());
+        env->ExceptionClear();
     }
 
     void AWTEventAccessor::setPosted(AWTEvent* event) const noexcept
     {
         static jmethodID methodId = env->GetMethodID(cls, "setPosted", "(Ljava/awt/AWTEvent;)V");
         env->CallVoidMethod(accessor, methodId, event->get());
+        env->ExceptionClear();
     }
 }

@@ -57,14 +57,14 @@ namespace java
 	{
 		jclass cls = env->FindClass("java/awt/Toolkit");
 		static jmethodID methodId = env->GetStaticMethodID(cls, "getDefaultToolkit", "()Ljava/awt/Toolkit;");
-		jobject toolkit = env->CallStaticObjectMethod(cls, methodId);
+		jobject toolkit = ClearException(env, env->CallStaticObjectMethod(cls, methodId));
 		return Toolkit{env, cls, toolkit};
 	}
 
 	EventQueue Toolkit::getSystemEventQueue() const noexcept
 	{
 		static jmethodID methodId = env->GetMethodID(cls, "getSystemEventQueue", "()Ljava/awt/EventQueue;");
-		jobject queue = env->CallObjectMethod(toolkit, methodId);
+		jobject queue = ClearException(env, env->CallObjectMethod(toolkit, methodId));
 		return EventQueue(env, env->FindClass("java/awt/EventQueue"), queue);
 	}
 }

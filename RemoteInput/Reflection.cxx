@@ -58,7 +58,7 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
 
             if (mid)
             {
-                auto components = make_safe_local<jobjectArray>(env, env->CallObjectMethod(component, mid));
+                auto components = make_safe_local<jobjectArray>(env, ClearException(env, env->CallObjectMethod(component, mid)));
                 jint len = env->GetArrayLength(components.get());
 
                 for (jint i = 0; i < len; ++i)
@@ -90,7 +90,7 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
 
             if (mid)
             {
-                auto components = make_safe_local<jobjectArray>(env, env->CallObjectMethod(component, mid));
+                auto components = make_safe_local<jobjectArray>(env, ClearException(env, env->CallObjectMethod(component, mid)));
                 jint len = env->GetArrayLength(components.get());
 
                 for (jint i = 0; i < len; ++i)
@@ -123,7 +123,7 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
                 jmethodID mid = env->GetMethodID(cls.get(), "getParent", "()Ljava/awt/Container;");
                 if (mid)
                 {
-                    return make_safe_local<jobject>(env, env->CallObjectMethod(component, mid));
+                    return make_safe_local<jobject>(env, ClearException(env, env->CallObjectMethod(component, mid)));
                 }
             }
         }
@@ -157,12 +157,12 @@ std::unique_ptr<Reflection> Reflection::Create(jobject awtFrame) noexcept
 
         auto cls = make_safe_local<jclass>(env, env->GetObjectClass(reflection->applet));
         jmethodID mid = env->GetMethodID(cls.get(), "getClass", "()Ljava/lang/Class;");
-        auto clsObj = make_safe_local<jobject>(env, env->CallObjectMethod(reflection->applet, mid));
+        auto clsObj = make_safe_local<jobject>(env, ClearException(env, env->CallObjectMethod(reflection->applet, mid)));
         cls.reset(env->GetObjectClass(clsObj.get()));
 
         //Get Canvas's ClassLoader.
         mid = env->GetMethodID(cls.get(), "getClassLoader", "()Ljava/lang/ClassLoader;");
-        reflection->classLoader = env->NewGlobalRef(make_safe_local<jobject>(env, env->CallObjectMethod(clsObj.get(), mid)).get());
+        reflection->classLoader = env->NewGlobalRef(make_safe_local<jobject>(env, ClearException(env, env->CallObjectMethod(clsObj.get(), mid))).get());
         reflection->cache = std::make_shared<JVMCache>(env, reflection->classLoader);
         return reflection;
     }
@@ -204,7 +204,7 @@ void Reflection::PrintClasses() const noexcept
         jfieldID field = env->GetFieldID(clsLoaderClass.get(), "classes", "Ljava/util/Vector;");
         auto classes = make_safe_local<jobject>(env, env->GetObjectField(classLoader, field));
         jmethodID toArray = env->GetMethodID(make_safe_local<jclass>(env, env->GetObjectClass(classes.get())).get(), "toArray", "()[Ljava/lang/Object;");
-        auto clses = make_safe_local<jobjectArray>(env, env->CallObjectMethod(classes.get(), toArray));
+        auto clses = make_safe_local<jobjectArray>(env, ClearException(env, env->CallObjectMethod(classes.get(), toArray)));
 
         printf("LOADED CLASSES:\n");
         for (int i = 0; i < env->GetArrayLength(clses.get()); ++i)
@@ -224,7 +224,7 @@ std::string Reflection::GetClassName(jobject object) const noexcept
     auto getClassName = [&](jobject object) -> std::string {
         auto cls = make_safe_local<jclass>(env, env->GetObjectClass(object));
         jmethodID mid = env->GetMethodID(cls.get(), "getName", "()Ljava/lang/String;");
-        auto strObj = make_safe_local<jstring>(env, env->CallObjectMethod(object, mid));
+        auto strObj = make_safe_local<jstring>(env, ClearException(env, env->CallObjectMethod(object, mid)));
 
         if (strObj)
         {
@@ -243,11 +243,11 @@ std::string Reflection::GetClassType(jobject object) const noexcept
     auto getClassType = [&](jobject component) -> std::string {
         auto cls = make_safe_local<jclass>(env, env->GetObjectClass(component));
         jmethodID mid = env->GetMethodID(cls.get(), "getClass", "()Ljava/lang/Class;");
-        auto clsObj = make_safe_local<jobject>(env, env->CallObjectMethod(component, mid));
+        auto clsObj = make_safe_local<jobject>(env, ClearException(env, env->CallObjectMethod(component, mid)));
 
         cls.reset(env->GetObjectClass(clsObj.get()));
         mid = env->GetMethodID(cls.get(), "getName", "()Ljava/lang/String;");
-        auto strObj = make_safe_local<jstring>(env, env->CallObjectMethod(clsObj.get(), mid));
+        auto strObj = make_safe_local<jstring>(env, ClearException(env, env->CallObjectMethod(clsObj.get(), mid)));
 
         if (strObj)
         {
@@ -315,11 +315,12 @@ jlong Reflection::getNativeHandle(JNIEnv* env, jobject component) const noexcept
         if (getPeerMethodID)
         {
             // Java 8
-            return env->CallObjectMethod(frame, getPeerMethodID);
+            return ClearException(env, env->CallObjectMethod(frame, getPeerMethodID));
         }
         else
         {
-            // Java 9+
+            // Java 9+: the failed lookup left a NoSuchMethodError pending.
+            env->ExceptionClear();
             auto component_cls = make_safe_local<jclass>(env, env->FindClass("java/awt/Component"));
             if (!component_cls)
             {
@@ -360,21 +361,21 @@ jlong Reflection::getNativeHandle(JNIEnv* env, jobject component) const noexcept
     {
         return 0;
     }
-    return env->CallLongMethod(peer.get(), methodID);
+    return ClearException(env, env->CallLongMethod(peer.get(), methodID));
     #elif defined(__linux__)
     jmethodID methodID = env->GetMethodID(component_peer_cls.get(), "getWindow", "()J");
     if (!methodID)
     {
         return 0;
     }
-    return env->CallLongMethod(peer.get(), methodID);
+    return ClearException(env, env->CallLongMethod(peer.get(), methodID));
     #elif defined(__APPLE__)
     jmethodID methodID = env->GetMethodID(component_peer_cls.get(), "getAWTHandle", "()J");
     if (!methodID)
     {
         return 0;
     }
-    return env->CallLongMethod(peer.get(), methodID);
+    return ClearException(env, env->CallLongMethod(peer.get(), methodID));
     #else
     #error "Unsupported platform: Cannot retrieve native window handle"
     return 0;

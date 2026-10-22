@@ -57,7 +57,7 @@ namespace java
     {
         jclass cls = env->FindClass("sun/awt/AWTEventAccessor");
         static jmethodID methodId = env->GetStaticMethodID(cls, "getAWTEventAccessor", "()Lsun/awt/AWTEventAccessor;");
-        jobject accessor = env->CallStaticObjectMethod(cls, methodId);
+        jobject accessor = ClearException(env, env->CallStaticObjectMethod(cls, methodId));
         return AWTEventAccessor{env, cls, accessor};
     }
 }

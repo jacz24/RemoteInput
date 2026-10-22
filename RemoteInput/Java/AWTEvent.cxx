@@ -46,7 +46,7 @@ namespace java
         if (cls)
         {
             jmethodID methodID = env->GetMethodID(cls, "getSource", "()Ljava/lang/Object;");
-            jobject result = env->CallObjectMethod(this->self, methodID);
+            jobject result = ClearException(env, env->CallObjectMethod(this->self, methodID));
             env->DeleteLocalRef(cls);
 
             env->DeleteLocalRef(std::exchange(result, env->NewGlobalRef(result)));
@@ -94,13 +94,13 @@ namespace java
         {
             static jmethodID toolkit_methodId = env->GetStaticMethodID(toolkit_class, "getDefaultToolkit",
                                                                        "()Ljava/awt/Toolkit;");
-            jobject toolkit = env->CallStaticObjectMethod(toolkit_class, toolkit_methodId);
+            jobject toolkit = ClearException(env, env->CallStaticObjectMethod(toolkit_class, toolkit_methodId));
             if (toolkit)
             {
                 //Get System Event Queue
                 static jmethodID queue_methodId = env->GetMethodID(toolkit_class, "getSystemEventQueue",
                                                                    "()Ljava/awt/EventQueue;");
-                jobject queue = env->CallObjectMethod(toolkit, queue_methodId);
+                jobject queue = ClearException(env, env->CallObjectMethod(toolkit, queue_methodId));
                 if (queue)
                 {
                     //Post Event
@@ -109,6 +109,7 @@ namespace java
                     {
                         static jmethodID post_methodId = env->GetMethodID(queue_class, "postEvent", "(Ljava/awt/AWTEvent;)V");
                         env->CallVoidMethod(queue, post_methodId, event);
+                        env->ExceptionClear();
 
                         //Cleanup
                         env->DeleteLocalRef(queue_class);

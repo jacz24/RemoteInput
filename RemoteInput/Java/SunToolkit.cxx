@@ -16,7 +16,7 @@ namespace java
             static jmethodID methodId = env->GetStaticMethodID(cls, "getContainingWindow", "(Ljava/awt/Component;)Ljava/awt/Window;");
             if (methodId)
             {
-                jobject containing_window = env->CallStaticObjectMethod(cls, methodId, component->get());
+                jobject containing_window = ClearException(env, env->CallStaticObjectMethod(cls, methodId, component->get()));
                 env->DeleteLocalRef(cls);
                 env->DeleteLocalRef(std::exchange(containing_window, env->NewGlobalRef(containing_window)));
                 return {env, containing_window};

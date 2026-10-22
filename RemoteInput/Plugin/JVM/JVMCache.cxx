@@ -54,7 +54,7 @@ jclass JVMCache::GetClass(JNIEnv* env, std::string_view name) noexcept
     jstring class_name = env->NewStringUTF(name.data());
     if (class_name)
     {
-        jclass clazz = static_cast<jclass>(env->CallObjectMethod(class_loader, load_class_method, class_name, true));
+        jclass clazz = static_cast<jclass>(ClearException(env, env->CallObjectMethod(class_loader, load_class_method, class_name, true)));
         env->DeleteLocalRef(class_name);
 
         if (clazz)
