@@ -99,11 +99,11 @@ public:
     void ClearCache() noexcept;
 
 
-    jlong getFrameHandle() const noexcept;
+    jlong getFrameHandle(JNIEnv* env) const noexcept;
     jobject getApplet() const noexcept;
     JNIEnv* getEnv() const noexcept;
 
-    jlong getNativeHandle(jobject component) const noexcept;
+    jlong getNativeHandle(JNIEnv* env, jobject component) const noexcept;
 
     template<typename T>
     typename std::enable_if<std::is_same<std::string, typename std::remove_cv<T>::type>::value, T>::type

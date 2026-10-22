@@ -1428,8 +1428,15 @@ void InitialiseHooks() noexcept
             return;
         }
 
+        //This thread's own env, which GetNativeReflector attached: the reflector's env becomes the command thread's once Reflection::Attach runs there (#63).
+        JNIEnv* env = nullptr;
+        if (JVM().getVM()->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_8) != JNI_OK)
+        {
+            return;
+        }
+
         extern std::unique_ptr<ControlCenter> control_center;
-        HWND main_window = reinterpret_cast<HWND>(control_center->reflect_frame_native_handle());
+        HWND main_window = reinterpret_cast<HWND>(control_center->reflect_frame_native_handle(env));
         if (!main_window)
         {
             return;

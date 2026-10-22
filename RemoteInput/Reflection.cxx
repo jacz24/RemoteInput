@@ -292,9 +292,9 @@ jfieldID Reflection::GetFieldID(jclass cls, std::string_view name, std::string_v
     return cache->GetFieldID(env, cls, name, desc, is_static);
 }
 
-jlong Reflection::getFrameHandle() const noexcept
+jlong Reflection::getFrameHandle(JNIEnv* env) const noexcept
 {
-    return getNativeHandle(frame);
+    return getNativeHandle(env, frame);
 }
 
 jobject Reflection::getApplet() const noexcept
@@ -307,7 +307,8 @@ JNIEnv* Reflection::getEnv() const noexcept
     return this->env;
 }
 
-jlong Reflection::getNativeHandle(jobject component) const noexcept
+//The caller's env, not this->env: that is the command thread's once Attach runs there, and the loader thread calls this (#63).
+jlong Reflection::getNativeHandle(JNIEnv* env, jobject component) const noexcept
 {
     auto get_peer = [](JNIEnv* env, jclass frame_cls, jobject frame) -> jobject {
         jmethodID getPeerMethodID = env->GetMethodID(frame_cls, "getPeer", "()Ljava/awt/peer/ComponentPeer;");
