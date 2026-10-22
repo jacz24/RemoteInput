@@ -1202,9 +1202,31 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
         std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t modifiers = GetActiveKeyModifiers();
 
+        std::int32_t scroll_type = java::MouseWheelEvent::MouseWheelEventCodes::WHEEL_UNIT_SCROLL;
+        std::int32_t scroll_amount = 1;
+        #if defined(_WIN32) || defined(_WIN64)
+        //Windows AWT's peer (WmMouseWheel) gives a notch the whole rotation, and scrollAmount the wheel-lines setting, 3 when
+        //the call fails; the page setting is a block scroll of 1 (Simba-Reflection #75).
+        double precise_rotation = lines;
+        UINT wheel_lines = 0;
+        if (!SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &wheel_lines, 0))
+        {
+            wheel_lines = 3;
+        }
+
+        if (wheel_lines == WHEEL_PAGESCROLL)
+        {
+            scroll_type = java::MouseWheelEvent::MouseWheelEventCodes::WHEEL_BLOCK_SCROLL;
+        }
+        else
+        {
+            scroll_amount = static_cast<std::int32_t>(wheel_lines);
+        }
+        #else
         //Technically, this should be gausian curve or bell-curve or parabola as the wheel speeds up and slows down..
         double precision = lines > 0 ? Random::instance()->generate_random_int(1, 9) : lines < 0 ? Random::instance()->generate_random_int(-9, -1) : Random::instance()->generate_random_double(-1, 1);
-        precision /= 10.0;
+        double precise_rotation = lines + precision / 10.0;
+        #endif
 
         java::MouseWheelEvent::Post(env,
                                     &receiver,
@@ -1217,10 +1239,10 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
                                     cy + this->y,
                                     0,
                                     false,
-                                    java::MouseWheelEvent::MouseWheelEventCodes::WHEEL_UNIT_SCROLL,
-                                    1,
+                                    scroll_type,
+                                    scroll_amount,
                                     lines,
-                                    lines + precision);
+                                    precise_rotation);
     }
     else if (isRequestedPositionInsideComponent && !isMouseInsideComponent)
     {
