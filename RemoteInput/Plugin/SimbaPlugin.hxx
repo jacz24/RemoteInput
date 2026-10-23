@@ -74,6 +74,7 @@ static const char* PascalExports[] =
     "Pascal_HasFocus", "Function EIOS_HasFocus(eios: Pointer): Boolean; native;",
     "Pascal_GainFocus", "Procedure EIOS_GainFocus(eios: Pointer); native;",
     "Pascal_LoseFocus", "Procedure EIOS_LoseFocus(eios: Pointer); native;",
+    "Pascal_SetFocusReaction", "Procedure EIOS_SetFocusReaction(eios: Pointer; mu, sigma, tau: Double); native;",
     "Pascal_IsKeyboardInputEnabled", "Function EIOS_IsKeyboardInputEnabled(eios: Pointer): Boolean; native;",
     "Pascal_SetKeyboardInputEnabled", "Function EIOS_SetKeyboardInputEnabled(eios: Pointer; enabled: Boolean): Boolean; native;",
     "Pascal_IsMouseInputEnabled", "Function EIOS_IsMouseInputEnabled(eios: Pointer): Boolean; native;",
@@ -359,6 +360,7 @@ EXPORT void Pascal_Inject_PID(void** Params, void** Result) noexcept;
 EXPORT void Pascal_HasFocus(void** Params, void** Result) noexcept;
 EXPORT void Pascal_GainFocus(void** Params, void** Result) noexcept;
 EXPORT void Pascal_LoseFocus(void** Params, void** Result) noexcept;
+EXPORT void Pascal_SetFocusReaction(void** Params, void** Result) noexcept;
 EXPORT void Pascal_IsKeyboardInputEnabled(void** Params, void** Result) noexcept;
 EXPORT void Pascal_SetKeyboardInputEnabled(void** Params, void** Result) noexcept;
 EXPORT void Pascal_IsMouseInputEnabled(void** Params, void** Result) noexcept;

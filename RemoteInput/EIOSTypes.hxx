@@ -79,7 +79,9 @@ enum class EIOSCommand: std::uint32_t
     REFLECT_CLASS_TYPE,
     REFLECT_CLASS_LOADER,
 
-    REMOTE_VM_INSTRUCTION
+    REMOTE_VM_INSTRUCTION,
+
+    SET_FOCUS_REACTION
 };
 
 typedef struct EIOSData

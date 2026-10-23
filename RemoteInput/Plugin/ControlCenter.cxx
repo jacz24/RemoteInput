@@ -401,6 +401,15 @@ void ControlCenter::process_command() noexcept
             io_controller->set_keyboard_repeat_delay(delay);
         }
             break;
+
+        case EIOSCommand::SET_FOCUS_REACTION:
+        {
+            double mu = stream.read<double>();
+            double sigma = stream.read<double>();
+            double tau = stream.read<double>();
+            io_controller->set_focus_reaction(mu, sigma, tau);
+        }
+            break;
             
         case EIOSCommand::STOP_ALL_PROCESSING:
         {
@@ -1598,6 +1607,16 @@ void ControlCenter::set_keyboard_repeat_delay(std::int32_t delay) const noexcept
     send_command([delay](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::SET_KEYBOARD_REPEAT_DELAY);
         stream.write<std::int32_t>(delay);
+    });
+}
+
+void ControlCenter::set_focus_reaction(double mu, double sigma, double tau) const noexcept
+{
+    send_command([mu, sigma, tau](Stream &stream, ImageData* image_data) {
+        image_data->set_command(EIOSCommand::SET_FOCUS_REACTION);
+        stream.write<double>(mu);
+        stream.write<double>(sigma);
+        stream.write<double>(tau);
     });
 }
 

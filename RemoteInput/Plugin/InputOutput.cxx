@@ -21,6 +21,7 @@
 #include "Toolkit.hxx"
 #include "Window.hxx"
 #include "WindowEvent.hxx"
+#include <cmath>
 
 #if !defined(_MSC_VER)
 #warning "WINDOWS BS"
@@ -112,7 +113,7 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
     #endif
 }
 
-InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), repeat_task(0), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), click_button(0), click_when(0), click_x(0), click_y(0), double_click_time(500), clickable_buttons(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons()
+InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), repeat_task(0), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), click_button(0), click_when(0), click_x(0), click_y(0), double_click_time(500), clickable_buttons(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons(), focus_mu(206.9), focus_sigma(11), focus_tau(27.4)
 {
     reflection->getEnv()->GetJavaVM(&vm);
 
@@ -225,7 +226,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
             JNIEnv* env = receiver.getEnv();
             if (!this->has_focus(&receiver))
             {
-                this->gain_focus(&receiver);
+                this->gain_focus(&receiver, true);
             }
 
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -246,16 +247,18 @@ void InputOutput::hold_key(std::int32_t code) noexcept
         {
             //A key pressed while another is held (rollover) takes the same path: its repeat task ends the held key's, as a keyboard repeats only the newest key.
             {
+                //Regain the focus before the key counts as held: a released key's repeat task that wakes in the reaction's
+                //wait then sees no held key and ends, where it would post this key's repeats before its press (#61).
+                java::Component receiver = control_center->reflect_canvas();
+                if (!this->has_focus(&receiver))
+                {
+                    this->gain_focus(&receiver, true);
+                }
+
                 currently_held_key = code;
                 held_keys.push_back(code);
 
                 //Post Event
-                java::Component receiver = control_center->reflect_canvas();
-                if (!this->has_focus(&receiver))
-                {
-                    this->gain_focus(&receiver);
-                }
-
                 JNIEnv* env = receiver.getEnv();
                 std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 auto pressed_at = std::chrono::steady_clock::now();
@@ -328,10 +331,10 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 break;
                             }
 
-                            //Post Event
+                            //Post Event. A repeat is no new key: it waits no reaction.
                             if (!this->has_focus(&receiver))
                             {
-                                this->gain_focus(&receiver);
+                                this->gain_focus(&receiver, false);
                             }
 
                             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -382,7 +385,7 @@ void InputOutput::release_key(std::int32_t code) noexcept
             java::Component receiver = control_center->reflect_canvas();
             if (!this->has_focus(&receiver))
             {
-                this->gain_focus(&receiver);
+                this->gain_focus(&receiver, true);
             }
 
             JNIEnv* env = receiver.getEnv();
@@ -420,7 +423,7 @@ void InputOutput::release_key(std::int32_t code) noexcept
             java::Component receiver = control_center->reflect_canvas();
             if (!this->has_focus(&receiver))
             {
-                this->gain_focus(&receiver);
+                this->gain_focus(&receiver, true);
             }
 
             JNIEnv* env = receiver.getEnv();
@@ -466,7 +469,7 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
 
     if (!this->has_focus(&receiver))
     {
-        this->gain_focus(&receiver);
+        this->gain_focus(&receiver, true);
     }
 
     bool isShiftDown = false;
@@ -581,7 +584,7 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
 
     if (!this->has_focus(&receiver))
     {
-        this->gain_focus(&receiver);
+        this->gain_focus(&receiver, true);
     }
 
     std::int32_t modifiers = this->ModifiersForChar(key);
@@ -684,7 +687,7 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
 
     if (!this->has_focus(&receiver))
     {
-        this->gain_focus(&receiver);
+        this->gain_focus(&receiver, true);
     }
 
     bool isShiftDown = false;
@@ -813,28 +816,142 @@ void InputOutput::gain_focus() const noexcept
     }
 
     java::Component component = control_center->reflect_canvas();
-    this->gain_focus(&component);
+    this->gain_focus(&component, false);
 }
 
-void InputOutput::gain_focus(java::Component* component) const noexcept
+//The OS's gaps inside a focus change (Simba-Reflection's gate 10, java.awt.Robot on the PC, 2026-10-23, Windows 11, JDK 25,
+//20 of each): FOCUS_LOST to WINDOW_LOST_FOCUS a median 1.09 ms (0.92-2.55), WINDOW_ACTIVATED to WINDOW_GAINED_FOCUS 1.17 ms
+//(0.94-1.43). Java's focus manager adds the rest of each change itself, as it does for the native peer's events.
+//shortcut: the PC's medians, fixed, on every platform; measure gate 10 on a Mac or Linux before a script runs there.
+static constexpr std::chrono::microseconds FOCUS_LOST_GAP{1090};
+static constexpr std::chrono::microseconds ACTIVATION_GAP{1170};
+static constexpr std::chrono::microseconds CLICK_PRESS_GAP{350}; //A click's press comes 0.36-0.57 ms after WINDOW_GAINED_FOCUS; the post adds about 0.1.
+
+//Files a focus request for the canvas as Java's own does (KeyboardFocusManager.shouldNativelyFocusHeavyweight), less its
+//native call. The focus manager's request on WINDOW_GAINED_FOCUS then joins it and asks the OS for nothing: on a window the
+//OS has not activated, the case of every regain after a real loss, its own would ask Windows to bring the window to the
+//front (SetForegroundWindow), then fail. The FOCUS_GAINED after it takes the request's cause, ACTIVATION, as a real regain's
+//does; with no request the focus manager gives it UNEXPECTED (gate 10, 2026-10-23). It also makes the canvas the window's
+//most recent focus owner, as Component.requestFocus does, for the focus manager to ask for it: a window that has had no
+//focus owner since it opened would give the focus to its initial component, the frame, through the OS (the focus probe,
+//2026-10-23). On a JDK without these (before 9), nothing is filed, and the focus manager asks the OS itself.
+static void request_focus_quietly(JNIEnv* env, jobject component) noexcept
 {
+    jclass manager = env->FindClass("java/awt/KeyboardFocusManager");
+    jclass request = manager ? env->FindClass("java/awt/KeyboardFocusManager$HeavyweightFocusRequest") : nullptr;
+    jclass cause = request ? env->FindClass("java/awt/event/FocusEvent$Cause") : nullptr;
+    jclass list = cause ? env->FindClass("java/util/LinkedList") : nullptr;
+    jfieldID requests_id = list ? env->GetStaticFieldID(manager, "heavyweightRequests", "Ljava/util/LinkedList;") : nullptr;
+    jfieldID activation_id = requests_id ? env->GetStaticFieldID(cause, "ACTIVATION", "Ljava/awt/event/FocusEvent$Cause;") : nullptr;
+    jmethodID init = activation_id ? env->GetMethodID(request, "<init>", "(Ljava/awt/Component;Ljava/awt/Component;ZLjava/awt/event/FocusEvent$Cause;)V") : nullptr;
+    jmethodID add = init ? env->GetMethodID(list, "add", "(Ljava/lang/Object;)Z") : nullptr;
+    jmethodID most_recent = add ? env->GetStaticMethodID(manager, "setMostRecentFocusOwner", "(Ljava/awt/Component;)V") : nullptr;
+
+    if (most_recent)
+    {
+        env->CallStaticVoidMethod(manager, most_recent, component);
+        env->ExceptionClear();
+
+        jobject requests = env->GetStaticObjectField(manager, requests_id);
+        jobject activation = env->GetStaticObjectField(cause, activation_id);
+        jobject focus_request = env->NewObject(request, init, component, component, JNI_FALSE, activation);
+
+        //Java files and takes its requests under the list's own lock.
+        if (requests && focus_request && env->MonitorEnter(requests) == JNI_OK)
+        {
+            env->CallBooleanMethod(requests, add, focus_request);
+            env->MonitorExit(requests);
+        }
+
+        for (jobject ref : {focus_request, activation, requests})
+        {
+            if (ref)
+            {
+                env->DeleteLocalRef(ref);
+            }
+        }
+    }
+
+    //A class, field or method a JDK lacks leaves its error pending: clear it before the next JNI call.
+    env->ExceptionClear();
+    for (jclass cls : {manager, request, cause, list})
+    {
+        if (cls)
+        {
+            env->DeleteLocalRef(cls);
+        }
+    }
+}
+
+//A wait to the microsecond: a sleep on Windows ends on the timer's tick (15.6 ms by default), so the last stretch spins.
+static void wait_until(std::chrono::steady_clock::time_point until) noexcept
+{
+    if (until - std::chrono::steady_clock::now() > std::chrono::milliseconds(20))
+    {
+        std::this_thread::sleep_until(until - std::chrono::milliseconds(20));
+    }
+
+    while (std::chrono::steady_clock::now() < until)
+    {
+        std::this_thread::yield();
+    }
+}
+
+//Java's focus settles on the event thread, in 0.1-0.5 ms: spin the first 2 ms, as the input after it must not lag, then
+//poll each 1 ms (a canvas that cannot take the focus holds no core for the 2 s).
+static void wait_for_focus(java::Component* component, bool focused) noexcept
+{
+    auto start = std::chrono::steady_clock::now();
+    while (component->hasFocus() != focused && std::chrono::steady_clock::now() - start < std::chrono::seconds(2))
+    {
+        if (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(2))
+        {
+            std::this_thread::yield();
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+}
+
+//The window's half of a regain, as the native peer posts it: WINDOW_ACTIVATED, then WINDOW_GAINED_FOCUS, on which Java's
+//focus manager asks to focus the window's last focus owner, the canvas, through the request filed here. Returns the time
+//of the first event.
+std::chrono::steady_clock::time_point InputOutput::activate_window(java::Component* component) const noexcept
+{
+    auto start = std::chrono::steady_clock::now();
     JNIEnv* env = component->getEnv();
     java::Window window = java::SunToolkit::getContainingWindow(component);
 
     if (window.get())
     {
         java::WindowEvent::Post(env, &window, java::WindowEvent::WindowEventCodes::WINDOW_ACTIVATED, 0, 0);
-        std::this_thread::sleep_for(std::chrono::milliseconds(Random::instance()->generate_random_int(100, 250)));
+        wait_until(std::chrono::steady_clock::now() + ACTIVATION_GAP);
+        request_focus_quietly(env, component->get());
         java::WindowEvent::Post(env, &window, java::WindowEvent::WindowEventCodes::WINDOW_GAINED_FOCUS, 0, 0);
-        std::this_thread::sleep_for(std::chrono::milliseconds(Random::instance()->generate_random_int(100, 250)));
     }
+    return start;
+}
 
-    java::FocusEvent::Post(env, component, java::FocusEvent::FocusCodes::FOCUS_GAINED, false, java::FocusEvent::Cause::ACTIVATION);
+//The canvas's half: FOCUS_GAINED, which takes the filed request (cause ACTIVATION) and focuses the canvas.
+void InputOutput::focus_canvas(java::Component* component) const noexcept
+{
+    java::FocusEvent::Post(component->getEnv(), component, java::FocusEvent::FocusCodes::FOCUS_GAINED, false, java::FocusEvent::Cause::ACTIVATION);
+    wait_for_focus(component, true);
+}
 
-    auto now = std::chrono::high_resolution_clock::now();
-    while (!component->hasFocus() && elapsed_time<std::chrono::seconds>(now) < 2)
+//react: a key waits a person's reaction from the regain's first event (focus_mu, focus_sigma, focus_tau). A person comes back
+//to the window by a click on its title or Alt+Tab, then types. A press waits none: a click into the window is its own regain.
+void InputOutput::gain_focus(java::Component* component, bool react) const noexcept
+{
+    auto start = this->activate_window(component);
+    this->focus_canvas(component);
+
+    if (react)
     {
-        yield_thread(std::chrono::milliseconds(Random::instance()->generate_random_int(100, 250)));
+        double ms = Random::instance()->generate_exgaussian(focus_mu, focus_sigma, focus_tau);
+        wait_until(start + std::chrono::microseconds(std::llround(ms * 1000)));
     }
 }
 
@@ -850,23 +967,32 @@ void InputOutput::lose_focus() const noexcept
     this->lose_focus(&component);
 }
 
+//A loss to another application, as the native peer posts it: the canvas's FOCUS_LOST (temporary, for activation), then the
+//window's WINDOW_LOST_FOCUS, after which Java's focus manager deactivates the window itself.
 void InputOutput::lose_focus(java::Component* component) const noexcept
 {
     JNIEnv* env = component->getEnv();
     java::Window window = java::SunToolkit::getContainingWindow(component);
 
-    if (window.get())
-    {
-        java::WindowEvent::Post(env, &window, java::WindowEvent::WindowEventCodes::WINDOW_DEACTIVATED, 0, 0);
-        std::this_thread::sleep_for(std::chrono::milliseconds(Random::instance()->generate_random_int(100, 250)));
-    }
-
     java::FocusEvent::Post(env, component, java::FocusEvent::FocusCodes::FOCUS_LOST, true, java::FocusEvent::Cause::ACTIVATION);
 
-    auto now = std::chrono::high_resolution_clock::now();
-    while (component->hasFocus() && elapsed_time<std::chrono::seconds>(now) < 2)
+    if (window.get())
     {
-        yield_thread(std::chrono::milliseconds(Random::instance()->generate_random_int(100, 250)));
+        wait_until(std::chrono::steady_clock::now() + FOCUS_LOST_GAP);
+        java::WindowEvent::Post(env, &window, java::WindowEvent::WindowEventCodes::WINDOW_LOST_FOCUS, 0, 0);
+    }
+
+    wait_for_focus(component, false);
+}
+
+void InputOutput::set_focus_reaction(double mu, double sigma, double tau) noexcept
+{
+    //The draw needs a finite mu, and a finite sigma and tau of 0 or more: keep the last good ones.
+    if (std::isfinite(mu) && std::isfinite(sigma) && std::isfinite(tau) && sigma >= 0 && tau >= 0)
+    {
+        this->focus_mu = mu;
+        this->focus_sigma = sigma;
+        this->focus_tau = tau;
     }
 }
 
@@ -1085,10 +1211,13 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
         bool isRequestedPositionInsideComponent = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
         if (isRequestedPositionInsideComponent)
         {
-            //Gain Focus, before the press reads its time: gain_focus waits 200 ms or more
-            if (!this->has_focus(&receiver))
+            //A press into a canvas with no focus is a click into an inactive window: the OS activates the window, posts the
+            //press, then focuses the canvas (gate 10). The press reads its time after the activation.
+            bool regain = !this->has_focus(&receiver);
+            if (regain)
             {
-                this->gain_focus(&receiver);
+                this->activate_window(&receiver);
+                wait_until(std::chrono::steady_clock::now() + CLICK_PRESS_GAP);
             }
 
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1113,6 +1242,11 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
             //Key extended masks
             buttonMask |= GetActiveKeyModifiers();
             java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_PRESSED, when, buttonMask, this->x, this->y, click_count, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_PRESSED, pressed, buttonMask), pressed);
+
+            if (regain)
+            {
+                this->focus_canvas(&receiver);
+            }
         }
         else
         {

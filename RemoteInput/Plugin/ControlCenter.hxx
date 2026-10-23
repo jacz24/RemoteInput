@@ -111,6 +111,7 @@ public:
     void set_keyboard_speed(std::int32_t speed) const noexcept;
     std::int32_t get_keyboard_repeat_delay() const noexcept;
     void set_keyboard_repeat_delay(std::int32_t delay) const noexcept;
+    void set_focus_reaction(double mu, double sigma, double tau) const noexcept;
     void stop_all_processing() const noexcept;
 
     bool reflect_is_objects_equal(const jobject first, const jobject second) const noexcept;

@@ -33,6 +33,7 @@ public:
     std::int64_t generate_random_int(std::int64_t min, std::int64_t max) noexcept;
     float generate_random_float(float min, float max) noexcept;
     double generate_random_double(double min, double max) noexcept;
+    double generate_exgaussian(double mu, double sigma, double tau) noexcept;
 };
 
 #endif /* RANDOM_HXX_INCLUDED */

@@ -68,6 +68,7 @@ EXPORT std::int32_t STD_CALL EIOS_GetKeyboardSpeed(EIOS* eios) noexcept;
 EXPORT void STD_CALL EIOS_SetKeyboardSpeed(EIOS* eios, std::int32_t speed) noexcept;
 EXPORT std::int32_t STD_CALL EIOS_GetKeyboardRepeatDelay(EIOS* eios) noexcept;
 EXPORT void STD_CALL EIOS_SetKeyboardRepeatDelay(EIOS* eios, std::int32_t delay) noexcept;
+EXPORT void STD_CALL EIOS_SetFocusReaction(EIOS* eios, double mu, double sigma, double tau) noexcept;
 EXPORT bool STD_CALL EIOS_GetGraphicsScaling(EIOS* eios) noexcept;
 EXPORT void STD_CALL EIOS_SetGraphicsScaling(EIOS* eios, bool enabled) noexcept;
 EXPORT EIOS* STD_CALL EIOS_PairClient(std::int32_t pid) noexcept;
