@@ -32,10 +32,12 @@ double Random::generate_random_double(double min, double max) noexcept
     return dist(rng, decltype(dist)::param_type(min, std::nextafter(max, std::numeric_limits<double>::max())));
 }
 
-//mu + Normal(0, sigma) + Exponential(tau): a reaction time's shape (sigma and tau over 0).
+//mu + Normal(0, sigma) + Exponential(tau): a reaction time's shape. A sigma or tau of 0 leaves that part out (a person's
+//fit can put all the spread in tau).
 double Random::generate_exgaussian(double mu, double sigma, double tau) noexcept
 {
     thread_local std::normal_distribution<double> normal;
     thread_local std::exponential_distribution<double> exponential;
-    return normal(rng, decltype(normal)::param_type(mu, sigma)) + exponential(rng, decltype(exponential)::param_type(1.0 / tau));
+    double gauss = sigma > 0 ? normal(rng, decltype(normal)::param_type(mu, sigma)) : mu;
+    return gauss + (tau > 0 ? exponential(rng, decltype(exponential)::param_type(1.0 / tau)) : 0);
 }

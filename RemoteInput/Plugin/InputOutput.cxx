@@ -7,7 +7,6 @@
 //
 
 #include "InputOutput.hxx"
-#include <cmath>
 #include "ControlCenter.hxx"
 #include "Platform.hxx"
 #include "Random.hxx"
@@ -22,6 +21,7 @@
 #include "Toolkit.hxx"
 #include "Window.hxx"
 #include "WindowEvent.hxx"
+#include <cmath>
 
 #if !defined(_MSC_VER)
 #warning "WINDOWS BS"
@@ -897,13 +897,21 @@ static void wait_until(std::chrono::steady_clock::time_point until) noexcept
     }
 }
 
-//Java's focus settles on the event thread: wait for it with no sleep, as the input after it must not lag.
+//Java's focus settles on the event thread, in 0.1-0.5 ms: spin the first 2 ms, as the input after it must not lag, then
+//poll each 1 ms (a canvas that cannot take the focus holds no core for the 2 s).
 static void wait_for_focus(java::Component* component, bool focused) noexcept
 {
     auto start = std::chrono::steady_clock::now();
     while (component->hasFocus() != focused && std::chrono::steady_clock::now() - start < std::chrono::seconds(2))
     {
-        std::this_thread::yield();
+        if (std::chrono::steady_clock::now() - start < std::chrono::milliseconds(2))
+        {
+            std::this_thread::yield();
+        }
+        else
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
     }
 }
 
@@ -979,8 +987,8 @@ void InputOutput::lose_focus(java::Component* component) const noexcept
 
 void InputOutput::set_focus_reaction(double mu, double sigma, double tau) noexcept
 {
-    //The draw needs a finite mu and a sigma and tau over 0: keep the last good ones.
-    if (std::isfinite(mu) && std::isfinite(sigma) && std::isfinite(tau) && sigma > 0 && tau > 0)
+    //The draw needs a finite mu, and a finite sigma and tau of 0 or more: keep the last good ones.
+    if (std::isfinite(mu) && std::isfinite(sigma) && std::isfinite(tau) && sigma >= 0 && tau >= 0)
     {
         this->focus_mu = mu;
         this->focus_sigma = sigma;

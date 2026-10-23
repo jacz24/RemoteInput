@@ -51,7 +51,7 @@ private:
     std::size_t keyboard_speed;
     std::size_t keyboard_repeat_delay;
     bool mouse_buttons[3];
-    double focus_mu; // ms: the ex-Gaussian from a regain's first event to the first key, a person's simple reaction (set_focus_reaction).
+    double focus_mu; // ms: the ex-Gaussian from a regain's first event to the first key, a person's simple reaction (set_focus_reaction); by default R1-R2's centre in Simba-Reflection's spec (docs/research/human-input-model.md), 206.9, 11 and 27.4.
     double focus_sigma;
     double focus_tau;
 
