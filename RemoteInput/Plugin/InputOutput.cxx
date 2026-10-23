@@ -823,6 +823,57 @@ void InputOutput::gain_focus() const noexcept
 //shortcut: the PC's medians, fixed, on every platform; measure gate 10 on a Mac or Linux before a script runs there.
 static constexpr std::chrono::microseconds FOCUS_LOST_GAP{1090};
 static constexpr std::chrono::microseconds ACTIVATION_GAP{1170};
+static constexpr std::chrono::microseconds CLICK_PRESS_GAP{350}; //A click's press comes 0.36-0.57 ms after WINDOW_GAINED_FOCUS; the post adds about 0.1.
+
+//Files a focus request for the canvas as Java's own does (KeyboardFocusManager.shouldNativelyFocusHeavyweight), less its
+//native call. The focus manager's request on WINDOW_GAINED_FOCUS then joins it and asks the OS for nothing: on a window the
+//OS has not activated, the case of every regain after a real loss, its own would ask Windows to bring the window to the
+//front (SetForegroundWindow), then fail. The FOCUS_GAINED after it takes the request's cause, ACTIVATION, as a real regain's
+//does; with no request the focus manager gives it UNEXPECTED (gate 10, 2026-10-23). On a JDK without these (before 9),
+//nothing is filed, and the focus manager asks the OS itself.
+static void request_focus_quietly(JNIEnv* env, jobject component) noexcept
+{
+    jclass manager = env->FindClass("java/awt/KeyboardFocusManager");
+    jclass request = manager ? env->FindClass("java/awt/KeyboardFocusManager$HeavyweightFocusRequest") : nullptr;
+    jclass cause = request ? env->FindClass("java/awt/event/FocusEvent$Cause") : nullptr;
+    jclass list = cause ? env->FindClass("java/util/LinkedList") : nullptr;
+    jfieldID requests_id = list ? env->GetStaticFieldID(manager, "heavyweightRequests", "Ljava/util/LinkedList;") : nullptr;
+    jfieldID activation_id = requests_id ? env->GetStaticFieldID(cause, "ACTIVATION", "Ljava/awt/event/FocusEvent$Cause;") : nullptr;
+    jmethodID init = activation_id ? env->GetMethodID(request, "<init>", "(Ljava/awt/Component;Ljava/awt/Component;ZLjava/awt/event/FocusEvent$Cause;)V") : nullptr;
+    jmethodID add = init ? env->GetMethodID(list, "add", "(Ljava/lang/Object;)Z") : nullptr;
+
+    if (add)
+    {
+        jobject requests = env->GetStaticObjectField(manager, requests_id);
+        jobject activation = env->GetStaticObjectField(cause, activation_id);
+        jobject focus_request = env->NewObject(request, init, component, component, JNI_FALSE, activation);
+
+        //Java files and takes its requests under the list's own lock.
+        if (requests && focus_request && env->MonitorEnter(requests) == JNI_OK)
+        {
+            env->CallBooleanMethod(requests, add, focus_request);
+            env->MonitorExit(requests);
+        }
+
+        for (jobject ref : {focus_request, activation, requests})
+        {
+            if (ref)
+            {
+                env->DeleteLocalRef(ref);
+            }
+        }
+    }
+
+    //A class, field or method a JDK lacks leaves its error pending: clear it before the next JNI call.
+    env->ExceptionClear();
+    for (jclass cls : {manager, request, cause, list})
+    {
+        if (cls)
+        {
+            env->DeleteLocalRef(cls);
+        }
+    }
+}
 
 //A wait to the microsecond: a sleep on Windows ends on the timer's tick (15.6 ms by default), so the last stretch spins.
 static void wait_until(std::chrono::steady_clock::time_point until) noexcept
@@ -849,7 +900,8 @@ static void wait_for_focus(java::Component* component, bool focused) noexcept
 }
 
 //The window's half of a regain, as the native peer posts it: WINDOW_ACTIVATED, then WINDOW_GAINED_FOCUS, on which Java's
-//focus manager asks to focus the window's last focus owner, the canvas. Returns the time of the first event.
+//focus manager asks to focus the window's last focus owner, the canvas, through the request filed here. Returns the time
+//of the first event.
 std::chrono::steady_clock::time_point InputOutput::activate_window(java::Component* component) const noexcept
 {
     auto start = std::chrono::steady_clock::now();
@@ -860,13 +912,13 @@ std::chrono::steady_clock::time_point InputOutput::activate_window(java::Compone
     {
         java::WindowEvent::Post(env, &window, java::WindowEvent::WindowEventCodes::WINDOW_ACTIVATED, 0, 0);
         wait_until(std::chrono::steady_clock::now() + ACTIVATION_GAP);
+        request_focus_quietly(env, component->get());
         java::WindowEvent::Post(env, &window, java::WindowEvent::WindowEventCodes::WINDOW_GAINED_FOCUS, 0, 0);
     }
     return start;
 }
 
-//The canvas's half: FOCUS_GAINED. On a window the OS has active, the focus manager's request takes it, with the cause
-//ACTIVATION, and drops its own later one; on one it has not, the request fails and this event alone focuses the canvas.
+//The canvas's half: FOCUS_GAINED, which takes the filed request (cause ACTIVATION) and focuses the canvas.
 void InputOutput::focus_canvas(java::Component* component) const noexcept
 {
     java::FocusEvent::Post(component->getEnv(), component, java::FocusEvent::FocusCodes::FOCUS_GAINED, false, java::FocusEvent::Cause::ACTIVATION);
@@ -1149,6 +1201,7 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
             if (regain)
             {
                 this->activate_window(&receiver);
+                wait_until(std::chrono::steady_clock::now() + CLICK_PRESS_GAP);
             }
 
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
