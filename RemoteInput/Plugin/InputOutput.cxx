@@ -247,16 +247,18 @@ void InputOutput::hold_key(std::int32_t code) noexcept
         {
             //A key pressed while another is held (rollover) takes the same path: its repeat task ends the held key's, as a keyboard repeats only the newest key.
             {
-                currently_held_key = code;
-                held_keys.push_back(code);
-
-                //Post Event
+                //Regain the focus before the key counts as held: a released key's repeat task that wakes in the reaction's
+                //wait then sees no held key and ends, where it would post this key's repeats before its press (#61).
                 java::Component receiver = control_center->reflect_canvas();
                 if (!this->has_focus(&receiver))
                 {
                     this->gain_focus(&receiver, true);
                 }
 
+                currently_held_key = code;
+                held_keys.push_back(code);
+
+                //Post Event
                 JNIEnv* env = receiver.getEnv();
                 std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 auto pressed_at = std::chrono::steady_clock::now();
