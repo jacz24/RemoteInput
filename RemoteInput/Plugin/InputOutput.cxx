@@ -831,8 +831,10 @@ static constexpr std::chrono::microseconds CLICK_PRESS_GAP{350}; //A click's pre
 //native call. The focus manager's request on WINDOW_GAINED_FOCUS then joins it and asks the OS for nothing: on a window the
 //OS has not activated, the case of every regain after a real loss, its own would ask Windows to bring the window to the
 //front (SetForegroundWindow), then fail. The FOCUS_GAINED after it takes the request's cause, ACTIVATION, as a real regain's
-//does; with no request the focus manager gives it UNEXPECTED (gate 10, 2026-10-23). On a JDK without these (before 9),
-//nothing is filed, and the focus manager asks the OS itself.
+//does; with no request the focus manager gives it UNEXPECTED (gate 10, 2026-10-23). It also makes the canvas the window's
+//most recent focus owner, as Component.requestFocus does, for the focus manager to ask for it: a window that has had no
+//focus owner since it opened would give the focus to its initial component, the frame, through the OS (the focus probe,
+//2026-10-23). On a JDK without these (before 9), nothing is filed, and the focus manager asks the OS itself.
 static void request_focus_quietly(JNIEnv* env, jobject component) noexcept
 {
     jclass manager = env->FindClass("java/awt/KeyboardFocusManager");
@@ -843,9 +845,13 @@ static void request_focus_quietly(JNIEnv* env, jobject component) noexcept
     jfieldID activation_id = requests_id ? env->GetStaticFieldID(cause, "ACTIVATION", "Ljava/awt/event/FocusEvent$Cause;") : nullptr;
     jmethodID init = activation_id ? env->GetMethodID(request, "<init>", "(Ljava/awt/Component;Ljava/awt/Component;ZLjava/awt/event/FocusEvent$Cause;)V") : nullptr;
     jmethodID add = init ? env->GetMethodID(list, "add", "(Ljava/lang/Object;)Z") : nullptr;
+    jmethodID most_recent = add ? env->GetStaticMethodID(manager, "setMostRecentFocusOwner", "(Ljava/awt/Component;)V") : nullptr;
 
-    if (add)
+    if (most_recent)
     {
+        env->CallStaticVoidMethod(manager, most_recent, component);
+        env->ExceptionClear();
+
         jobject requests = env->GetStaticObjectField(manager, requests_id);
         jobject activation = env->GetStaticObjectField(cause, activation_id);
         jobject focus_request = env->NewObject(request, init, component, component, JNI_FALSE, activation);
