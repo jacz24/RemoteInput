@@ -908,6 +908,15 @@ void Pascal_SetKeyboardRepeatDelay(void** Params, void** Result) noexcept
     EIOS_SetKeyboardRepeatDelay(eios, delay);
 }
 
+void Pascal_SetFocusReaction(void** Params, void** Result) noexcept
+{
+    EIOS* eios = PascalRead<EIOS*>(Params[0]);
+    double mu = PascalRead<double>(Params[1]);
+    double sigma = PascalRead<double>(Params[2]);
+    double tau = PascalRead<double>(Params[3]);
+    EIOS_SetFocusReaction(eios, mu, sigma, tau);
+}
+
 void Pascal_GetGraphicsScaling(void** Params, void** Result) noexcept
 {
     EIOS* eios = PascalRead<EIOS*>(Params[0]);

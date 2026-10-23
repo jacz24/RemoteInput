@@ -285,6 +285,15 @@ void STD_CALL EIOS_SetKeyboardRepeatDelay(EIOS* eios, std::int32_t delay) noexce
     }
 }
 
+//The ex-Gaussian, in ms, from a regain's first focus event to the first key after it: a person's simple reaction.
+void STD_CALL EIOS_SetFocusReaction(EIOS* eios, double mu, double sigma, double tau) noexcept
+{
+    if (eios)
+    {
+        eios->control_center->set_focus_reaction(mu, sigma, tau);
+    }
+}
+
 bool STD_CALL EIOS_GetGraphicsScaling(EIOS* eios) noexcept
 {
     if (eios)

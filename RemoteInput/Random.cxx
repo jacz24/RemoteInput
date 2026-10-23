@@ -31,3 +31,11 @@ double Random::generate_random_double(double min, double max) noexcept
     thread_local std::uniform_real_distribution<> dist{min, std::nextafter(max, std::numeric_limits<double>::max())};
     return dist(rng, decltype(dist)::param_type(min, std::nextafter(max, std::numeric_limits<double>::max())));
 }
+
+//mu + Normal(0, sigma) + Exponential(tau): a reaction time's shape (sigma and tau over 0).
+double Random::generate_exgaussian(double mu, double sigma, double tau) noexcept
+{
+    thread_local std::normal_distribution<double> normal;
+    thread_local std::exponential_distribution<double> exponential;
+    return normal(rng, decltype(normal)::param_type(mu, sigma)) + exponential(rng, decltype(exponential)::param_type(1.0 / tau));
+}

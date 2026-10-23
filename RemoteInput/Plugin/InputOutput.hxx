@@ -14,6 +14,7 @@
 #include <atomic>
 #include <mutex>
 #include <array>
+#include <chrono>
 #include "DetachedThreadPool.hxx"
 #include "ThreadPool.hxx"
 #include "Reflection.hxx"
@@ -50,6 +51,9 @@ private:
     std::size_t keyboard_speed;
     std::size_t keyboard_repeat_delay;
     bool mouse_buttons[3];
+    double focus_mu; // ms: the ex-Gaussian from a regain's first event to the first key, a person's simple reaction (set_focus_reaction).
+    double focus_sigma;
+    double focus_tau;
 
     // MARK: - Functions
     std::int32_t CharToJavaKeyCode(char c) const noexcept;
@@ -61,7 +65,10 @@ private:
     std::int32_t SimbaMouseButtonToJava(std::int32_t button) const noexcept;
 
     bool has_focus(java::Component* component) const noexcept;
-    void gain_focus(java::Component* component) const noexcept;
+    //A regain as the OS posts one: the window's events, then the canvas's. A press goes between the two halves.
+    std::chrono::steady_clock::time_point activate_window(java::Component* component) const noexcept;
+    void focus_canvas(java::Component* component) const noexcept;
+    void gain_focus(java::Component* component, bool react) const noexcept;
     void lose_focus(java::Component* component) const noexcept;
 
     bool any_key_held(std::array<std::int32_t, 4>&& keys) const noexcept;
@@ -83,6 +90,7 @@ public:
     void set_keyboard_speed(std::int32_t speed) noexcept;
     std::int32_t get_keyboard_repeat_delay() const noexcept;
     void set_keyboard_repeat_delay(std::int32_t delay) noexcept;
+    void set_focus_reaction(double mu, double sigma, double tau) noexcept;
 
     void hold_key(std::int32_t code) noexcept;
     void release_key(std::int32_t code) noexcept;
