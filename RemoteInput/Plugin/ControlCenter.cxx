@@ -1472,7 +1472,7 @@ void ControlCenter::get_real_mouse_position(std::int32_t* x, std::int32_t* y) co
 
 void ControlCenter::move_mouse(std::int32_t x, std::int32_t y) const noexcept
 {
-    send_input("move_mouse", [x, y](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [x, y](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::MOVE_MOUSE);
         stream.write<std::int32_t>(x);
         stream.write<std::int32_t>(y);
@@ -1481,7 +1481,7 @@ void ControlCenter::move_mouse(std::int32_t x, std::int32_t y) const noexcept
 
 void ControlCenter::hold_mouse(std::int32_t button) const noexcept
 {
-    send_input("hold_mouse", [button](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [button](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::HOLD_MOUSE);
         stream.write<std::int32_t>(button);
     });
@@ -1489,7 +1489,7 @@ void ControlCenter::hold_mouse(std::int32_t button) const noexcept
 
 void ControlCenter::release_mouse(std::int32_t button) const noexcept
 {
-    send_input("release_mouse", [button](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [button](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::RELEASE_MOUSE);
         stream.write<std::int32_t>(button);
     });
@@ -1497,7 +1497,7 @@ void ControlCenter::release_mouse(std::int32_t button) const noexcept
 
 void ControlCenter::scroll_mouse(std::int32_t lines) const noexcept
 {
-    send_input("scroll_mouse", [lines](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [lines](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::SCROLL_MOUSE);
         stream.write<std::int32_t>(lines);
     });
@@ -1519,7 +1519,7 @@ bool ControlCenter::is_mouse_held(std::int32_t button) const noexcept
 
 void ControlCenter::send_string(const char* string, std::int32_t keywait, std::int32_t keymodwait) const noexcept
 {
-    send_input("send_string", [string, keywait, keymodwait](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [string, keywait, keymodwait](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::SEND_STRING);
         image_data->data_stream() << string;
         stream.write<std::int32_t>(keywait);
@@ -1529,7 +1529,7 @@ void ControlCenter::send_string(const char* string, std::int32_t keywait, std::i
 
 void ControlCenter::send_key(char key, std::int32_t key_down_time, std::int32_t key_up_time, std::int32_t modifier_down_time, std::int32_t modifier_up_time) const noexcept
 {
-    send_input("send_key", [key, key_down_time, key_up_time, modifier_down_time, modifier_up_time](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [key, key_down_time, key_up_time, modifier_down_time, modifier_up_time](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::SEND_KEY);
         stream.write<char>(key);
         stream.write<std::int32_t>(key_down_time);
@@ -1541,7 +1541,7 @@ void ControlCenter::send_key(char key, std::int32_t key_down_time, std::int32_t 
 
 void ControlCenter::key_send(const char* string, std::int32_t len, std::int32_t* sleeptimes) const noexcept
 {
-    send_input("key_send", [string, len, sleeptimes](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [string, len, sleeptimes](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::KEY_SEND);
         image_data->data_stream() << std::string(string, len);
         stream.write(sleeptimes, (len * 4) * sizeof(int32_t));
@@ -1550,7 +1550,7 @@ void ControlCenter::key_send(const char* string, std::int32_t len, std::int32_t*
 
 void ControlCenter::hold_key(std::int32_t key) const noexcept
 {
-    send_input("hold_key", [key](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [key](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::HOLD_KEY);
         stream.write<std::int32_t>(key);
     });
@@ -1558,7 +1558,7 @@ void ControlCenter::hold_key(std::int32_t key) const noexcept
 
 void ControlCenter::release_key(std::int32_t key) const noexcept
 {
-    send_input("release_key", [key](Stream &stream, ImageData* image_data) {
+    send_input(__func__, [key](Stream &stream, ImageData* image_data) {
         image_data->set_command(EIOSCommand::RELEASE_KEY);
         stream.write<std::int32_t>(key);
     });
@@ -1999,6 +1999,10 @@ java::Applet ControlCenter::reflect_applet(JNIEnv* env) const noexcept
 
 java::Component ControlCenter::reflect_canvas() const noexcept
 {
+    //Each input command starts here. HotSpot keeps an exception an earlier command left pending (RemoteVM keeps one for
+    //the script) through the next JNI call, and ClearException took it for getComponent's: no canvas, and the command
+    //lost every event (Simba-Reflection #74).
+    main_reflector->getEnv()->ExceptionClear();
     java::Applet applet{main_reflector->getEnv(), main_reflector->getApplet(), false};
     return applet.getComponent(0);
 }

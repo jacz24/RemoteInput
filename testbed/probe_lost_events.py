@@ -6,6 +6,8 @@ cannot build. Each session starts KeyLog.java in a new JVM, injects the DLL, pai
   pending  b'\\xffab' through key_send: Java's KeyEvent rejects the KEY_TYPED of 0xFF (CHAR_UNDEFINED), so its
            exception is pending on the command thread at the next post. Every later event must arrive, and the
            plugin must print one lost event on stderr.
+  vm       RemoteVM.FindClass of a class the JVM lacks, which leaves NoClassDefFoundError pending on the command
+           thread (RemoteVM keeps it for the script), then '[\\]' through key_send: every event, no report.
 
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_lost_events.py <java.exe> <libRemoteInput.dll> [sessions]
@@ -49,8 +51,14 @@ def session(java, dll):
         return {"error": f"JVM did not start: {other}"}
     pid, version = int(line.split()[1]), line.split()[2]
     events = []
-    threading.Thread(target=lambda: [events.append(tuple(map(int, l.split()[1:4:2]))) if l.startswith("KEY ")
-                                     else other.append(l.rstrip()) for l in jvm.stdout], daemon=True).start()
+
+    def read():
+        for l in jvm.stdout:
+            if l.startswith("KEY "):
+                events.append(tuple(map(int, l.split()[1:4:2])))  # id and char
+            else:
+                other.append(l.rstrip())
+    threading.Thread(target=read, daemon=True).start()
 
     lib = ctypes.CDLL(dll)
     lib.EIOS_Inject_PID.argtypes = [ctypes.c_int32]
@@ -75,9 +83,16 @@ def session(java, dll):
         sleeps = (ctypes.c_int32 * (len(text) * 4))(*([20] * (len(text) * 4)))  # 4 sleep times a character
         lib.SimbaPluginTarget_KeySend(eios, text, len(text), sleeps)
 
+    def leave_pending_then_type():
+        # The plugin's Lape methods take (Params, Result): Params[0] the RemoteVM variable, then each argument's address.
+        vm, eios_var, name, cls = ctypes.c_void_p(), ctypes.c_void_p(eios), ctypes.c_char_p(b"no/such/Class74"), ctypes.c_void_p()
+        lib.Pascal_RemoteVM_Init((ctypes.c_void_p * 2)(ctypes.addressof(vm), ctypes.addressof(eios_var)), None)
+        lib.Pascal_RemoteVM_FindClass((ctypes.c_void_p * 2)(ctypes.addressof(vm), ctypes.addressof(name)), ctypes.byref(cls))
+        key_send(TEXT)
+
     result = {"version": version}
     for name, call in [("key_send", lambda: key_send(TEXT)), ("send_string", lambda: lib.EIOS_SendString(eios, TEXT, 20, 20)),
-                       ("pending", lambda: key_send(PENDING))]:
+                       ("pending", lambda: key_send(PENDING)), ("vm", leave_pending_then_type)]:
         start = len(events)
         print(f"PHASE {name}", file=sys.stderr, flush=True)
         call()
@@ -95,11 +110,11 @@ def check(result, stderr):
     if "error" in result:
         return [result["error"]]
     faults = [f"{name}: got {result[name]}, expected {want}" for name, want in
-              [("key_send", expected(TEXT)), ("send_string", expected(TEXT)), ("pending", expected(PENDING))]
+              [("key_send", expected(TEXT)), ("send_string", expected(TEXT)), ("pending", expected(PENDING)), ("vm", expected(TEXT))]
               if [tuple(e) for e in result[name]] != want]
     reports = {phase: re.findall(r"RemoteInput: (\d+) input event", text) for phase, text in
                re.findall(r"PHASE (\w+)\n(.*?)(?=PHASE |\Z)", stderr, re.S)}
-    if reports != {"key_send": [], "send_string": [], "pending": ["1"]}:
+    if reports != {"key_send": [], "send_string": [], "pending": ["1"], "vm": []}:
         faults.append(f"reports by phase {reports}, expected one lost event in pending")
     if not result["alive"]:
         faults.append("the JVM died")

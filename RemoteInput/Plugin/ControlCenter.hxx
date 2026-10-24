@@ -48,7 +48,7 @@ private:
     bool send_command(Func &&sender) const noexcept;
 
     template<typename Func>
-    void send_input(const char* command, Func &&sender) const noexcept;
+    void send_input(const char* caller, Func &&sender) const noexcept;
 
     void send_array_response_index_length(Stream &stream, jarray array, ReflectionType type, std::size_t index, std::size_t length) const noexcept;
     void send_array_response_indices(Stream &stream, jarray array, ReflectionType type, std::int32_t* indices, std::size_t length) const noexcept;
@@ -201,13 +201,13 @@ bool ControlCenter::send_command(Func &&sender) const noexcept
 //calls return nothing, so print it, as EIOS_PairClient prints its error, and flush it: on a pipe, Simba's console
 //showed it only when Simba exited.
 template<typename Func>
-void ControlCenter::send_input(const char* command, Func &&sender) const noexcept
+void ControlCenter::send_input(const char* caller, Func &&sender) const noexcept
 {
     if (send_command(std::forward<Func>(sender)))
     {
         if (std::uint32_t lost = get_image_data()->data_stream().read<std::uint32_t>())
         {
-            fprintf(stderr, "RemoteInput: %u input event(s) could not be built and were not posted (%s)\n", lost, command);
+            fprintf(stderr, "RemoteInput: %u input event(s) could not be built and were not posted (%s)\n", lost, caller);
             fflush(stderr);
         }
     }

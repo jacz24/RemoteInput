@@ -26,8 +26,9 @@ namespace java
         static void Post(JNIEnv* env, jobject event, bool is_system_generated);
 
         //FindClass gives null for a class the JVM lacks, NewObject for a constructor that throws (a KEY_TYPED of
-        //CHAR_UNDEFINED), and the post dropped the event in silence with the exception left pending (Simba-Reflection #74).
-        //Clear it and build once more; a second failure clears it too and counts in lost_events.
+        //CHAR_UNDEFINED, a null source). The next post must not start with that exception pending, and the script must
+        //learn of the lost event (Simba-Reflection #74). The second try is for a JVM that fails a call while an exception
+        //is pending: HotSpot does not.
         template<typename Construct>
         static jobject Build(JNIEnv* env, const char* name, Construct&& construct) noexcept
         {
