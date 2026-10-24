@@ -198,7 +198,8 @@ bool ControlCenter::send_command(Func &&sender) const noexcept
 }
 
 //An input command's answer is the count of events the client could not build (Simba-Reflection #74). Simba's input
-//calls return nothing, so print it, as EIOS_PairClient prints its error.
+//calls return nothing, so print it, as EIOS_PairClient prints its error, and flush it: on a pipe, Simba's console
+//showed it only when Simba exited.
 template<typename Func>
 void ControlCenter::send_input(const char* command, Func &&sender) const noexcept
 {
@@ -207,6 +208,7 @@ void ControlCenter::send_input(const char* command, Func &&sender) const noexcep
         if (std::uint32_t lost = get_image_data()->data_stream().read<std::uint32_t>())
         {
             fprintf(stderr, "RemoteInput: %u input event(s) could not be built and were not posted (%s)\n", lost, command);
+            fflush(stderr);
         }
     }
 }
