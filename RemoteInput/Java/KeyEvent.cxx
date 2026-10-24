@@ -29,35 +29,30 @@ namespace java
 
 	void KeyEvent::Dispatch(JNIEnv* env, Component* receiver, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, bool is_system_generated) noexcept
 	{
-		jclass cls = env->FindClass("java/awt/event/KeyEvent");
-		if (cls)
-		{
+		jobject event = Build(env, "java/awt/event/KeyEvent", [&](jclass cls) {
 			static jmethodID methodId = env->GetMethodID(cls, "<init>", "(Ljava/awt/Component;IJIICI)V");
-			jobject event = env->NewObject(cls, methodId, source->get(), id, when, modifiers, keyCode, keyChar, keyLocation);
-			if (event)
-			{
-				AWTEvent::SetSystemGenerated(env, event, is_system_generated);
-				receiver->dispatchEvent(event);
-				env->DeleteLocalRef(event);
-			}
+			return env->NewObject(cls, methodId, source->get(), id, when, modifiers, keyCode, keyChar, keyLocation);
+		});
 
-			env->DeleteLocalRef(cls);
+		if (event)
+		{
+			AWTEvent::SetSystemGenerated(env, event, is_system_generated);
+			receiver->dispatchEvent(event);
+			env->DeleteLocalRef(event);
 		}
 	}
 
 	void KeyEvent::Post(JNIEnv* env, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, bool is_system_generated) noexcept
 	{
-		jclass cls = env->FindClass("java/awt/event/KeyEvent");
-		if (cls)
-		{
+		jobject event = Build(env, "java/awt/event/KeyEvent", [&](jclass cls) {
 			static jmethodID methodId = env->GetMethodID(cls, "<init>", "(Ljava/awt/Component;IJIICI)V");
-			jobject event = env->NewObject(cls, methodId, source->get(), id, when, modifiers, keyCode, keyChar, keyLocation);
-			if (event)
-			{
-				AWTEvent::Post(env, event, is_system_generated);
-				env->DeleteLocalRef(event);
-			}
-			env->DeleteLocalRef(cls);
+			return env->NewObject(cls, methodId, source->get(), id, when, modifiers, keyCode, keyChar, keyLocation);
+		});
+
+		if (event)
+		{
+			AWTEvent::Post(env, event, is_system_generated);
+			env->DeleteLocalRef(event);
 		}
 	}
 }

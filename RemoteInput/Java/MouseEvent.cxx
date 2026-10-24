@@ -29,35 +29,30 @@ namespace java
 
     void MouseEvent::Dispatch(JNIEnv* env, Component* receiver, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t x, std::int32_t y, std::int32_t clickCount, bool popupTrigger, std::int32_t button, bool is_system_generated) noexcept
     {
-        jclass cls = env->FindClass("java/awt/event/MouseEvent");
-        if (cls)
-        {
+        jobject event = Build(env, "java/awt/event/MouseEvent", [&](jclass cls) {
             static jmethodID methodId = env->GetMethodID(cls, "<init>", "(Ljava/awt/Component;IJIIIIZI)V");
-            jobject event = env->NewObject(cls, methodId, source->get(), id, when, modifiers, x, y, clickCount, popupTrigger, button);
-            if (event)
-            {
-                AWTEvent::SetSystemGenerated(env, event, is_system_generated);
-                receiver->dispatchEvent(event);
-                env->DeleteLocalRef(event);
-            }
+            return env->NewObject(cls, methodId, source->get(), id, when, modifiers, x, y, clickCount, popupTrigger, button);
+        });
 
-            env->DeleteLocalRef(cls);
+        if (event)
+        {
+            AWTEvent::SetSystemGenerated(env, event, is_system_generated);
+            receiver->dispatchEvent(event);
+            env->DeleteLocalRef(event);
         }
     }
 
     void MouseEvent::Post(JNIEnv* env, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t x, std::int32_t y, std::int32_t clickCount, bool popupTrigger, std::int32_t button, bool is_system_generated) noexcept
     {
-        jclass cls = env->FindClass("java/awt/event/MouseEvent");
-        if (cls)
-        {
+        jobject event = Build(env, "java/awt/event/MouseEvent", [&](jclass cls) {
             static jmethodID methodId = env->GetMethodID(cls, "<init>", "(Ljava/awt/Component;IJIIIIZI)V");
-            jobject event = env->NewObject(cls, methodId, source->get(), id, when, modifiers, x, y, clickCount, popupTrigger, button);
-            if (event)
-            {
-                AWTEvent::Post(env, event, is_system_generated);
-                env->DeleteLocalRef(event);
-            }
-            env->DeleteLocalRef(cls);
+            return env->NewObject(cls, methodId, source->get(), id, when, modifiers, x, y, clickCount, popupTrigger, button);
+        });
+
+        if (event)
+        {
+            AWTEvent::Post(env, event, is_system_generated);
+            env->DeleteLocalRef(event);
         }
     }
 }
