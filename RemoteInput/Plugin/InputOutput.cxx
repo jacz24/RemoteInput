@@ -315,7 +315,11 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 break;
                             }
 
-                            std::this_thread::sleep_until(next);
+                            //Windows's Sleep can end up to a timer tick early: the first repeat came 499 ms after a press at a delay of 500 (#17).
+                            while (std::chrono::steady_clock::now() < next)
+                            {
+                                std::this_thread::sleep_until(next);
+                            }
 
                             //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
                             auto now = std::chrono::steady_clock::now();

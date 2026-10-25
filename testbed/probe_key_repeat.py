@@ -2,18 +2,19 @@
 (Simba-AI #484, a Mac probe) on the PC. It starts KeyLog.java, injects the DLL, pairs, and holds keys through the
 plugin's exports:
 
-  presses   10 presses of Escape, each 20-125 ms, 400 ms apart: none outlasts the repeat delay, so none attaches a
-            thread (P14).
+  presses   10 presses of Escape, each 20-125 ms, 400 ms apart: none outlasts the repeat delay, so none repeats or
+            attaches a thread (P14).
   holds     10 holds of the up arrow, each the repeat delay and 300 ms, 700 ms apart: each repeats and attaches one
             thread (the control of the thread count), and no key event comes in the 200 ms after a release (P14).
   rollover  hold A, hold B, release B, release A, 1 s apart. The operator's keyboard on Windows 11 (#17, 2026-10-23):
             B's press ends A's repeat; B repeats after its own delay; B's release ends the repeat while A is still down,
             and A posts nothing more until its release. A's and B's first repeats came 511 and 507 ms after their
             presses, at the OS's 500 ms.
+  older     hold A, hold B, release A, release B, 1 s apart: the release of the older key leaves B's repeat alone.
 
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
-Exit 0 only when every check passes.
+JVM_OPTS adds JVM options (-Xcheck:jni). Exit 0 only when every check passes.
 """
 import ctypes
 import os
@@ -26,8 +27,8 @@ import time
 
 PRESSED, TYPED, RELEASED = 401, 400, 402
 VK_ESCAPE, VK_UP, VK_A, VK_B = 0x1B, 0x26, 0x41, 0x42
-# shortcut: a repeat task sleeps on Windows's 15.6 ms timer tick, so the bound on a first repeat is the delay plus a tick
-# and the post (the real keyboard's 507-511 ms fall inside); measure the bound again if the fork raises the timer's rate.
+# shortcut: a repeat ends its sleep on Windows's timer tick (15.6 ms unless a process raised the rate), so a first repeat
+# may come up to a tick and the post after its delay; the keyboard's 507-511 ms fall inside. Measure again on a new timer.
 FIRST_REPEAT_SLACK_MS = 20
 
 
@@ -42,6 +43,18 @@ def runs(codes):
     return [tuple(r) for r in out]
 
 
+def pressed_per_hold(events):
+    """The KEY_PRESSED count of each hold of one key, a hold ending at its release."""
+    counts, n = [], 0
+    for kind, _, _ in events:
+        if kind == PRESSED:
+            n += 1
+        elif kind == RELEASED:
+            counts.append(n)
+            n = 0
+    return counts
+
+
 def after_release(events, window_us=200_000):
     """Each press or KEY_TYPED within window_us after a release (P14's measure)."""
     late, released = [], None
@@ -53,34 +66,40 @@ def after_release(events, window_us=200_000):
     return late
 
 
-def check_rollover(events, delay_ms):
-    """The faults of the rollover phase against the real keyboard's order and the repeat delay."""
+def check_rollover(events, delay_ms, first_release):
+    """The faults of a two-key hold (A, then B) whose first release is first_release: A repeats, B's press ends it, B
+    repeats after its own delay; B's release ends the repeat, and A's leaves it alone."""
     faults = []
     presses = [(code, us) for kind, code, us in events if kind == PRESSED]
     releases = [(code, us) for kind, code, us in events if kind == RELEASED]
-    if [c for c, _ in runs(c for c, _ in presses)] != [VK_A, VK_B] or any(n < 2 for _, n in runs(c for c, _ in presses)):
-        faults.append(f"presses ran {runs(c for c, _ in presses)}, expected A repeats, then B repeats, and no A after B")
-    if [c for c, _ in releases] != [VK_B, VK_A]:
-        faults.append(f"releases {[c for c, _ in releases]}, expected B then A")
-    if presses and releases and presses[-1][1] > releases[0][1]:
+    pressed_runs = runs(c for c, _ in presses)
+    if [c for c, _ in pressed_runs] != [VK_A, VK_B] or any(n < 2 for _, n in pressed_runs):
+        faults.append(f"presses ran {pressed_runs}, expected A repeats, then B repeats, and no A after B")
+    other = VK_A if first_release == VK_B else VK_B
+    if [c for c, _ in releases] != [first_release, other]:
+        faults.append(f"releases {[c for c, _ in releases]}, expected {chr(first_release)} then {chr(other)}")
+    elif first_release == VK_B and presses and presses[-1][1] > releases[0][1]:
         faults.append(f"{sum(us > releases[0][1] for _, us in presses)} press(es) after B's release, while A was down")
-    for key, name in [(VK_A, "A"), (VK_B, "B")]:
+    elif first_release == VK_A and not any(releases[0][1] < us < releases[1][1] for _, us in presses):
+        faults.append("B's repeat ended at A's release")
+    for key in (VK_A, VK_B):
         times = [us for c, us in presses if c == key]
         if len(times) >= 2:
             first = (times[1] - times[0]) / 1000
             if not delay_ms <= first <= delay_ms + FIRST_REPEAT_SLACK_MS:
-                faults.append(f"{name}'s first repeat {first:.1f} ms after its press, expected {delay_ms}-{delay_ms + FIRST_REPEAT_SLACK_MS}")
+                faults.append(f"{chr(key)}'s first repeat {first:.1f} ms after its press, expected {delay_ms}-{delay_ms + FIRST_REPEAT_SLACK_MS}")
     return faults
 
 
 def timings(events):
-    """Each key's first-repeat delay and its later intervals, in ms, for the report."""
+    """Each key's first-repeat delay and its later intervals' least, median and most, in ms, for the report."""
     out = {}
     for key in sorted({c for k, c, _ in events if k == PRESSED}):
         times = [us for k, c, us in events if k == PRESSED and c == key]
         gaps = [(b - a) / 1000 for a, b in zip(times, times[1:])]
+        later = gaps[1:] or [0]
         if gaps:
-            out[chr(key) if 32 < key < 127 else hex(key)] = (gaps[0], min(gaps[1:] or [0]), statistics.median(gaps[1:] or [0]), max(gaps[1:] or [0]))
+            out[chr(key)] = (gaps[0], min(later), statistics.median(later), max(later))
     return out
 
 
@@ -141,41 +160,46 @@ def main(java, dll):
         time.sleep(0.5)  # the EDT prints after the post
         return events[start:], thread_number() - first - 1
 
-    def hold(key, ms):
-        lib.EIOS_HoldKey(eios, key)
-        time.sleep(ms / 1000)
-        lib.EIOS_ReleaseKey(eios, key)
+    def holds(key, n, hold_ms, gap_ms):
+        for _ in range(n):
+            lib.EIOS_HoldKey(eios, key)
+            time.sleep(hold_ms() / 1000)
+            lib.EIOS_ReleaseKey(eios, key)
+            time.sleep(gap_ms / 1000)
 
-    rng = random.Random(14)
-    presses, presses_threads = phase(lambda: [(hold(VK_ESCAPE, rng.randint(20, 125)), time.sleep(0.4)) for _ in range(10)])
-    holds, holds_threads = phase(lambda: [(hold(VK_UP, delay + 300), time.sleep(0.7)) for _ in range(10)])
-
-    def rollover():
-        for call, key in [(lib.EIOS_HoldKey, VK_A), (lib.EIOS_HoldKey, VK_B), (lib.EIOS_ReleaseKey, VK_B), (lib.EIOS_ReleaseKey, VK_A)]:
+    def two_keys(first_release):
+        for call, key in [(lib.EIOS_HoldKey, VK_A), (lib.EIOS_HoldKey, VK_B), (lib.EIOS_ReleaseKey, first_release),
+                          (lib.EIOS_ReleaseKey, VK_A if first_release == VK_B else VK_B)]:
             call(eios, key)
             time.sleep(1)
-    two_keys, _ = phase(rollover)
+
+    rng = random.Random(14)  # ctl14.cxx's seed
+    presses, presses_threads = phase(lambda: holds(VK_ESCAPE, 10, lambda: rng.randint(20, 125), 400))
+    held, held_threads = phase(lambda: holds(VK_UP, 10, lambda: delay + 300, 700))
+    rollover, _ = phase(lambda: two_keys(VK_B))
+    older, _ = phase(lambda: two_keys(VK_A))
     alive = jvm.poll() is None
     lib.EIOS_ReleaseClient(eios)
     jvm.kill()
 
-    count = lambda evs, kind: sum(k == kind for k, _, _ in evs)
     checks = [
-        ("presses: 10 pressed, 10 released", (count(presses, PRESSED), count(presses, RELEASED)) == (10, 10),
-         f"{count(presses, PRESSED)} pressed, {count(presses, RELEASED)} released"),
+        ("presses: one press each", pressed_per_hold(presses) == [1] * 10, f"pressed per press {pressed_per_hold(presses)}"),
         ("presses: no thread attached", presses_threads == 0, f"{presses_threads} thread(s)"),
-        ("holds: each repeats, one thread each (control)", holds_threads == 10 and count(holds, PRESSED) >= 20,
-         f"{holds_threads} thread(s), {count(holds, PRESSED)} pressed"),
-        ("presses and holds: no key event in the 200 ms after a release", not after_release(presses + holds),
-         f"{after_release(presses + holds)}"),
+        ("holds: each repeats, one thread each (control)",
+         held_threads == 10 and len(pressed_per_hold(held)) == 10 and min(pressed_per_hold(held)) >= 2,
+         f"{held_threads} thread(s), pressed per hold {pressed_per_hold(held)}"),
+        ("presses and holds: no key event in the 200 ms after a release", not after_release(presses + held),
+         f"{after_release(presses + held)}"),
     ]
-    faults = check_rollover(two_keys, delay)
-    checks.append(("rollover: the real keyboard's order and first repeats", not faults, "; ".join(faults)))
+    for name, events_of, first_release in [("rollover", rollover, VK_B), ("older", older, VK_A)]:
+        faults = check_rollover(events_of, delay, first_release)
+        checks.append((f"{name}: the keyboard's order and first repeats", not faults, "; ".join(faults)))
 
     print(f"java {version}, repeat delay {delay} ms, interval {speed} ms")
-    for key, (first, lo, med, hi) in timings(two_keys).items():
-        print(f"  rollover {key}: first repeat {first:.1f} ms, then each {lo:.1f}-{hi:.1f} ms (median {med:.1f})")
-    print(f"  rollover presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _ in two_keys if k == PRESSED)]}")
+    for name, events_of in [("rollover", rollover), ("older", older)]:
+        for key, (first, lo, med, hi) in timings(events_of).items():
+            print(f"  {name} {key}: first repeat {first:.1f} ms, then each {lo:.1f}-{hi:.1f} ms (median {med:.1f})")
+        print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _ in events_of if k == PRESSED)]}")
     for name, ok, detail in checks:
         print(f"{'PASS' if ok else 'FAIL'}: {name}" + ("" if ok else f" -- {detail}"))
     if not alive:

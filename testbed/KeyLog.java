@@ -4,6 +4,7 @@ import java.awt.EventQueue;
 import java.awt.Frame;
 import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
+import java.util.Scanner;
 
 // The client of probe_lost_events.py (Simba-Reflection #74, after #62's) and probe_key_repeat.py (#17): a hidden Frame
 // with a Canvas, and a pushed EventQueue that prints each KeyEvent RemoteInput posts, with its arrival in µs
@@ -25,8 +26,8 @@ public class KeyLog {
         });
         // A THREADS line on stdin prints the name of a new, unstarted Thread: its number counts each anonymous thread and
         // each attach with no name since the last line, plus the line's own (P14, Simba-AI #484).
-        Thread threads = new Thread(() -> {
-            java.util.Scanner in = new java.util.Scanner(System.in);
+        Thread reader = new Thread(() -> {
+            Scanner in = new Scanner(System.in);
             while (in.hasNextLine()) {
                 if (in.nextLine().equals("THREADS")) {
                     System.out.println("THREADS " + new Thread().getName());
@@ -34,8 +35,8 @@ public class KeyLog {
                 }
             }
         }, "stdin");
-        threads.setDaemon(true);
-        threads.start();
+        reader.setDaemon(true);
+        reader.start();
         Frame frame = new Frame("probe-74");
         // RemoteInput's has_focus calls hasFocus(): true skips the regain, which a hidden canvas cannot finish.
         frame.add(new Canvas() {
