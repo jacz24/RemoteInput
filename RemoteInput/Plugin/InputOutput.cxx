@@ -411,13 +411,12 @@ void InputOutput::release_key(std::int32_t code) noexcept
             //Remove the held key from the list..
             held_keys.erase(it);
 
-            //Find the next non-control held-key..
-            auto jt = std::find_if(held_keys.crbegin(), held_keys.crend(), [](std::int32_t key){
-                return std::find(std::begin(control_keys), std::end(control_keys), key) == std::end(control_keys);
-            });
-
-            //Set the next currently held key to the first non-control key..
-            currently_held_key = jt != held_keys.crend() ? *jt : -1;
+            //The repeating key's release ends the repeat, though an older key is still down: a keyboard repeats no key it
+            //has passed over (#17, Windows 11). An older key's release leaves the repeat alone.
+            if (currently_held_key == code)
+            {
+                currently_held_key = -1;
+            }
 
             //Post Event
             java::Component receiver = control_center->reflect_canvas();
