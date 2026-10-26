@@ -11,6 +11,9 @@ plugin's exports:
             and A posts nothing more until its release. A's and B's first repeats came 511 and 507 ms after their
             presses, at the OS's 500 ms.
   older     hold A, hold B, release A, release B, 1 s apart: the release of the older key leaves B's repeat alone.
+  slow      the rollover again, with KeyLog holding the command thread the repeat interval after each key it posts, so
+            B's press spans two of A's repeat times (#104). Where B counted as held before its task was the newest, A's
+            task posted a repeat of B there, before B's delay; at real speed the window is two posts long.
 
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
@@ -178,6 +181,9 @@ def main(java, dll):
     held, held_threads = phase(lambda: holds(VK_UP, 10, lambda: delay + 300, 700))
     rollover, _ = phase(lambda: two_keys(VK_B))
     older, _ = phase(lambda: two_keys(VK_A))
+    jvm.stdin.write(f"POST_MS {speed}\n")  # the phase's THREADS line, read after it, waits for it
+    jvm.stdin.flush()
+    slow, _ = phase(lambda: two_keys(VK_B))
     alive = jvm.poll() is None
     lib.EIOS_ReleaseClient(eios)
     jvm.kill()
@@ -191,12 +197,12 @@ def main(java, dll):
         ("presses and holds: no key event in the 200 ms after a release", not after_release(presses + held),
          f"{after_release(presses + held)}"),
     ]
-    for name, events_of, first_release in [("rollover", rollover, VK_B), ("older", older, VK_A)]:
+    for name, events_of, first_release in [("rollover", rollover, VK_B), ("older", older, VK_A), ("slow", slow, VK_B)]:
         faults = check_rollover(events_of, delay, first_release)
         checks.append((f"{name}: the keyboard's order and first repeats", not faults, "; ".join(faults)))
 
     print(f"java {version}, repeat delay {delay} ms, interval {speed} ms")
-    for name, events_of in [("rollover", rollover), ("older", older)]:
+    for name, events_of in [("rollover", rollover), ("older", older), ("slow", slow)]:
         for key, (first, lo, med, hi) in timings(events_of).items():
             print(f"  {name} {key}: first repeat {first:.1f} ms, then each {lo:.1f}-{hi:.1f} ms (median {med:.1f})")
         print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _, _ in events_of if k == PRESSED)]}")

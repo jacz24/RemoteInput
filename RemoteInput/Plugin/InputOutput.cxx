@@ -255,7 +255,16 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                     this->gain_focus(&receiver, true);
                 }
 
-                currently_held_key = code;
+                //The new key's task is the newest before the key counts as held, both under the lock a repeat task holds from its
+                //check through its posts, so no older task reads this key as held while its own task is the newest. With the key
+                //set first and the task after this key's posts, one that checked in that window posted a repeat of this key
+                //before its delay (#104). A repeat that passed its check posts before this press.
+                std::uint32_t task;
+                {
+                    std::lock_guard<std::mutex> lock(this->mutex);
+                    task = ++repeat_task;
+                    currently_held_key = code;
+                }
                 held_keys.push_back(code);
 
                 //Post Event
@@ -286,8 +295,6 @@ void InputOutput::hold_key(std::int32_t code) noexcept
 
                 if (this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
                 {
-                    std::uint32_t task = ++repeat_task;
-
                     //Repeats keep the OS timer's schedule from the press: the first after the delay, then one each interval, however long a post takes.
                     auto next = pressed_at + std::chrono::milliseconds(this->keyboard_repeat_delay);
                     input_thread->add_task([&, task, next](std::atomic_bool &stopped) mutable {
