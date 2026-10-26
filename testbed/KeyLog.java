@@ -11,8 +11,29 @@ import java.util.Scanner;
 // (nanoTime: currentTimeMillis steps by the 15.6 ms timer tick on Windows) and its when, the poster's clock in ms. The
 // queue sees each event before the focus manager, so a real mouse or keyboard at the PC cannot take one away.
 public class KeyLog {
+    // A POST_MS line on stdin holds the thread that posted the first key event that many ms after each key event it posts
+    // (#104): the command thread, as each repeat task attaches a thread of its own. The pushed queue is the system queue.
+    static volatile int postMs;
+    static volatile Thread commandThread;
+
     public static void main(String[] args) throws Exception {
         Toolkit.getDefaultToolkit().getSystemEventQueue().push(new EventQueue() {
+            @Override
+            public void postEvent(AWTEvent e) {
+                super.postEvent(e);
+                if (e instanceof KeyEvent) {
+                    if (commandThread == null) {
+                        commandThread = Thread.currentThread();
+                    }
+                    if (postMs > 0 && Thread.currentThread() == commandThread) {
+                        try {
+                            Thread.sleep(postMs);
+                        } catch (InterruptedException ignored) {
+                        }
+                    }
+                }
+            }
+
             @Override
             protected void dispatchEvent(AWTEvent e) {
                 if (e instanceof KeyEvent) {
@@ -29,9 +50,12 @@ public class KeyLog {
         Thread reader = new Thread(() -> {
             Scanner in = new Scanner(System.in);
             while (in.hasNextLine()) {
-                if (in.nextLine().equals("THREADS")) {
+                String line = in.nextLine();
+                if (line.equals("THREADS")) {
                     System.out.println("THREADS " + new Thread().getName());
                     System.out.flush();
+                } else if (line.startsWith("POST_MS ")) {
+                    postMs = Integer.parseInt(line.substring(8));
                 }
             }
         }, "stdin");
