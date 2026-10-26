@@ -255,9 +255,10 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                     this->gain_focus(&receiver, true);
                 }
 
-                //The new key's task is the newest before the key counts as held, both under the repeat tasks' lock: an older
-                //task that checked between the two, during this key's posts, read this key with its own task still the newest
-                //and posted a repeat of it before its delay (#104). A repeat that passed its check posts before this press.
+                //The new key's task is the newest before the key counts as held, both under the lock a repeat task holds from its
+                //check through its posts, so no older task reads this key as held while its own task is the newest. With the key
+                //set first and the task after this key's posts, one that checked in that window posted a repeat of this key
+                //before its delay (#104). A repeat that passed its check posts before this press.
                 std::uint32_t task;
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);

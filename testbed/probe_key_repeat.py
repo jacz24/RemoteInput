@@ -182,6 +182,7 @@ def main(java, dll):
     rollover, _ = phase(lambda: two_keys(VK_B))
     older, _ = phase(lambda: two_keys(VK_A))
     jvm.stdin.write(f"POST_MS {speed}\n")  # the phase's THREADS line, read after it, waits for it
+    jvm.stdin.flush()
     slow, _ = phase(lambda: two_keys(VK_B))
     alive = jvm.poll() is None
     lib.EIOS_ReleaseClient(eios)

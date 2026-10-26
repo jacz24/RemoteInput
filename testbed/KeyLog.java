@@ -55,7 +55,7 @@ public class KeyLog {
                     System.out.println("THREADS " + new Thread().getName());
                     System.out.flush();
                 } else if (line.startsWith("POST_MS ")) {
-                    postMs = Integer.parseInt(line.substring(8));
+                    postMs = Integer.parseInt(line.substring("POST_MS ".length()));
                 }
             }
         }, "stdin");
