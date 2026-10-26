@@ -8,8 +8,8 @@ import java.util.Scanner;
 
 // The client of probe_lost_events.py (Simba-Reflection #74, after #62's) and probe_key_repeat.py (#17): a hidden Frame
 // with a Canvas, and a pushed EventQueue that prints each KeyEvent RemoteInput posts, with its arrival in µs
-// (nanoTime: currentTimeMillis steps by the 15.6 ms timer tick on Windows). The queue sees each event before the focus
-// manager, so a real mouse or keyboard at the PC cannot take one away.
+// (nanoTime: currentTimeMillis steps by the 15.6 ms timer tick on Windows) and its when, the poster's clock in ms. The
+// queue sees each event before the focus manager, so a real mouse or keyboard at the PC cannot take one away.
 public class KeyLog {
     public static void main(String[] args) throws Exception {
         Toolkit.getDefaultToolkit().getSystemEventQueue().push(new EventQueue() {
@@ -18,7 +18,7 @@ public class KeyLog {
                 if (e instanceof KeyEvent) {
                     KeyEvent k = (KeyEvent) e;
                     System.out.println("KEY " + k.getID() + " " + k.getKeyCode() + " " + (int) k.getKeyChar() + " " + k.getKeyLocation()
-                        + " " + System.nanoTime() / 1000);
+                        + " " + System.nanoTime() / 1000 + " " + k.getWhen());
                     System.out.flush();
                 }
                 super.dispatchEvent(e);

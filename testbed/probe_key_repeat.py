@@ -29,6 +29,7 @@ PRESSED, TYPED, RELEASED = 401, 400, 402
 VK_ESCAPE, VK_UP, VK_A, VK_B = 0x1B, 0x26, 0x41, 0x42
 # shortcut: a repeat ends its sleep on Windows's timer tick (15.6 ms unless a process raised the rate), so a first repeat
 # may come up to a tick and the post after its delay; the keyboard's 507-511 ms fall inside. Measure again on a new timer.
+# The check reads the plugin's own when: the arrival times carry each post's lag, about 0.3 ms either way.
 FIRST_REPEAT_SLACK_MS = 20
 
 
@@ -46,7 +47,7 @@ def runs(codes):
 def pressed_per_hold(events):
     """The KEY_PRESSED count of each hold of one key, a hold ending at its release."""
     counts, n = [], 0
-    for kind, _, _ in events:
+    for kind, _, _, _ in events:
         if kind == PRESSED:
             n += 1
         elif kind == RELEASED:
@@ -58,7 +59,7 @@ def pressed_per_hold(events):
 def after_release(events, window_us=200_000):
     """Each press or KEY_TYPED within window_us after a release (P14's measure)."""
     late, released = [], None
-    for kind, code, us in events:
+    for kind, code, us, _ in events:
         if kind == RELEASED:
             released = us
         elif released is not None and us - released < window_us:
@@ -70,8 +71,8 @@ def check_rollover(events, delay_ms, first_release):
     """The faults of a two-key hold (A, then B) whose first release is first_release: A repeats, B's press ends it, B
     repeats after its own delay; B's release ends the repeat, and A's leaves it alone."""
     faults = []
-    presses = [(code, us) for kind, code, us in events if kind == PRESSED]
-    releases = [(code, us) for kind, code, us in events if kind == RELEASED]
+    presses = [(code, us) for kind, code, us, _ in events if kind == PRESSED]
+    releases = [(code, us) for kind, code, us, _ in events if kind == RELEASED]
     pressed_runs = runs(c for c, _ in presses)
     if [c for c, _ in pressed_runs] != [VK_A, VK_B] or any(n < 2 for _, n in pressed_runs):
         faults.append(f"presses ran {pressed_runs}, expected A repeats, then B repeats, and no A after B")
@@ -83,19 +84,18 @@ def check_rollover(events, delay_ms, first_release):
     elif first_release == VK_A and not any(releases[0][1] < us < releases[1][1] for _, us in presses):
         faults.append("B's repeat ended at A's release")
     for key in (VK_A, VK_B):
-        times = [us for c, us in presses if c == key]
-        if len(times) >= 2:
-            first = (times[1] - times[0]) / 1000
-            if not delay_ms <= first <= delay_ms + FIRST_REPEAT_SLACK_MS:
-                faults.append(f"{chr(key)}'s first repeat {first:.1f} ms after its press, expected {delay_ms}-{delay_ms + FIRST_REPEAT_SLACK_MS}")
+        whens = [when for kind, code, _, when in events if kind == PRESSED and code == key]
+        if len(whens) >= 2 and not delay_ms <= whens[1] - whens[0] <= delay_ms + FIRST_REPEAT_SLACK_MS:
+            faults.append(f"{chr(key)}'s first repeat {whens[1] - whens[0]} ms after its press by the plugin's clock, "
+                          f"expected {delay_ms}-{delay_ms + FIRST_REPEAT_SLACK_MS}")
     return faults
 
 
 def timings(events):
-    """Each key's first-repeat delay and its later intervals' least, median and most, in ms, for the report."""
+    """Each key's first-repeat delay and its later intervals' least, median and most, in ms by arrival, for the report."""
     out = {}
-    for key in sorted({c for k, c, _ in events if k == PRESSED}):
-        times = [us for k, c, us in events if k == PRESSED and c == key]
+    for key in sorted({c for k, c, _, _ in events if k == PRESSED}):
+        times = [us for k, c, us, _ in events if k == PRESSED and c == key]
         gaps = [(b - a) / 1000 for a, b in zip(times, times[1:])]
         later = gaps[1:] or [0]
         if gaps:
@@ -119,7 +119,7 @@ def main(java, dll):
         for l in jvm.stdout:
             f = l.split()
             if f[:1] == ["KEY"]:
-                events.append((int(f[1]), int(f[2]), int(f[5])))  # id, key code, arrival in µs
+                events.append((int(f[1]), int(f[2]), int(f[5]), int(f[6])))  # id, key code, arrival in µs, when in ms
             elif f[:1] == ["THREADS"]:
                 threads.append(int(f[1].rsplit("-", 1)[1]))
     threading.Thread(target=read, daemon=True).start()
@@ -199,7 +199,7 @@ def main(java, dll):
     for name, events_of in [("rollover", rollover), ("older", older)]:
         for key, (first, lo, med, hi) in timings(events_of).items():
             print(f"  {name} {key}: first repeat {first:.1f} ms, then each {lo:.1f}-{hi:.1f} ms (median {med:.1f})")
-        print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _ in events_of if k == PRESSED)]}")
+        print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _, _ in events_of if k == PRESSED)]}")
     for name, ok, detail in checks:
         print(f"{'PASS' if ok else 'FAIL'}: {name}" + ("" if ok else f" -- {detail}"))
     if not alive:
