@@ -315,7 +315,11 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 break;
                             }
 
-                            std::this_thread::sleep_until(next);
+                            //Windows's Sleep can end up to a timer tick early: the first repeat came 499 ms after a press at a delay of 500 (#17).
+                            while (std::chrono::steady_clock::now() < next)
+                            {
+                                std::this_thread::sleep_until(next);
+                            }
 
                             //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
                             auto now = std::chrono::steady_clock::now();
@@ -411,13 +415,12 @@ void InputOutput::release_key(std::int32_t code) noexcept
             //Remove the held key from the list..
             held_keys.erase(it);
 
-            //Find the next non-control held-key..
-            auto jt = std::find_if(held_keys.crbegin(), held_keys.crend(), [](std::int32_t key){
-                return std::find(std::begin(control_keys), std::end(control_keys), key) == std::end(control_keys);
-            });
-
-            //Set the next currently held key to the first non-control key..
-            currently_held_key = jt != held_keys.crend() ? *jt : -1;
+            //The repeating key's release ends the repeat, though an older key is still down: a keyboard repeats no key it
+            //has passed over (#17, Windows 11). An older key's release leaves the repeat alone.
+            if (currently_held_key == code)
+            {
+                currently_held_key = -1;
+            }
 
             //Post Event
             java::Component receiver = control_center->reflect_canvas();
