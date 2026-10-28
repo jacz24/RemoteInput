@@ -17,12 +17,14 @@ plugin's exports:
 
 The shape of the repeats (#105), over every hold: each key's repeats have deadlines at its press, the delay, then one each
 interval, and the probe prints each interval and each repeat's lateness against its deadline, by arrival. The keyboard's
-driver repeats on a kernel timer, which fires at the first tick of the OS's clock at or after each deadline; the tick is
-the finest any process asked for (timeBeginPeriod), else 15.625 ms. The operator's keyboard at 33 ms and a tick of
-15.625 ms (#17's key-log.tsv): 242 intervals of 30-33 ms (2 ticks) and 27 of 46-49 ms (3), a mean of 32.93 ms over 5.3 s,
-so a deadline each whole 33 ms. The checks: each repeat at most a tick after its deadline and not before it, no interval
-under 30 ms (or under the shorter interval a coarser tick gives), and the share of 40 ms or more within 2 SE of the
-keyboard's at its tick, or of the share another tick gives. The tick must not change during the run.
+repeats come at the first tick of the OS's default timer (15.625 ms) at or after each deadline, as a timer of a process
+that asked for no finer tick fires, whatever tick another process asked for. The operator's keyboard at 33 ms (#17's
+real-keyboard log of 2026-10-23, since written over): 242 intervals of 30-33 ms (2 ticks) and 27 of 46-49 ms (3), a mean
+of 32.93 ms over 5.3 s, so a deadline each whole 33 ms; again at a global tick of 1 ms (2026-10-28, 3 holds,
+Simba-Reflection's docs/live/2026-10-28-key-repeat-tick1ms.tsv): 175 of 30-33 ms and 19 of 45-48 ms. The checks: each
+repeat at most a default tick after its deadline and not before it, no interval under 30 ms (or under the shorter
+interval a coarser tick gives), and the share of 40 ms or more within 2 SE of the keyboard's at its tick, or of the share
+another default tick gives.
 
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
@@ -40,23 +42,23 @@ import time
 PRESSED, TYPED, RELEASED = 401, 400, 402
 VK_ESCAPE, VK_UP, VK_A, VK_B = 0x1B, 0x26, 0x41, 0x42
 KEY_NAMES = {VK_ESCAPE: "Escape", VK_UP: "Up"}
-# A first repeat comes at the first tick of the OS's clock at or after its delay (#105), up to a tick (15.625 ms unless a
-# process asked for a finer one) and the post after it; the keyboard's 507-511 ms fall inside.
+# A first repeat comes at the first tick of the OS's default timer at or after its delay (#105), up to a tick (15.625 ms)
+# and the post after it; the keyboard's 499-511 ms fall inside.
 # The check reads the plugin's own when: the arrival times carry each post's lag, about 0.3 ms either way.
 FIRST_REPEAT_SLACK_MS = 20
-# The operator's keyboard (#17's key-log.tsv): intervals of LONG_MS or more of all, at its tick; none under SHORT_MS.
+# The operator's keyboard (#17's log of 2026-10-23): intervals of LONG_MS or more of all, at its tick; none under SHORT_MS.
 KEYBOARD_LONG, KEYBOARD_INTERVALS, KEYBOARD_TICK_MS = 27, 269, 15.625
 LONG_MS, SHORT_MS = 40, 30
 # Each arrival carries its post's lag, about 0.3 ms either way (8217919).
 LAG_MS = 1
 
 
-def os_tick_ms():
-    """The OS's clock tick in ms (NtQueryTimerResolution's current)."""
-    least, most, current = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_ulong()
-    if ctypes.WinDLL("ntdll").NtQueryTimerResolution(ctypes.byref(least), ctypes.byref(most), ctypes.byref(current)):
+def os_ticks_ms():
+    """The OS's default tick and the tick it runs now, the finest any process asked for, in ms (NtQueryTimerResolution)."""
+    coarsest, finest, current = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_ulong()
+    if ctypes.WinDLL("ntdll").NtQueryTimerResolution(ctypes.byref(coarsest), ctypes.byref(finest), ctypes.byref(current)):
         sys.exit("NtQueryTimerResolution failed")
-    return current.value / 10_000
+    return coarsest.value / 10_000, current.value / 10_000
 
 
 def repeat_holds(events):
@@ -243,7 +245,7 @@ def main(java, dll):
             time.sleep(1)
 
     rng = random.Random(14)  # ctl14.cxx's seed
-    tick = os_tick_ms()
+    default_tick, now_tick = os_ticks_ms()
     presses, presses_threads = phase(lambda: holds(VK_ESCAPE, 10, lambda: rng.randint(20, 125), 400))
     held, held_threads = phase(lambda: holds(VK_UP, 10, lambda: delay + 300, 700))
     rollover, _ = phase(lambda: two_keys(VK_B))
@@ -269,12 +271,11 @@ def main(java, dll):
         checks.append((f"{name}: the keyboard's order and first repeats", not faults, "; ".join(faults)))
     report = {name: repeat_report(events_of, delay, speed)
               for name, events_of in [("holds", held), ("rollover", rollover), ("older", older), ("slow", slow)]}
-    shape = check_shape([hold for holds_of in report.values() for hold in holds_of], tick, speed)
-    end_tick = os_tick_ms()
+    shape = check_shape([hold for holds_of in report.values() for hold in holds_of], default_tick, speed)
     checks.append(("repeats: the keyboard's shape, each at the first tick after its deadline", not shape, "; ".join(shape)))
-    checks.append(("the OS's tick held through the run", end_tick == tick, f"{tick:g} ms, then {end_tick:g} ms"))
 
-    print(f"java {version}, repeat delay {delay} ms, interval {speed} ms, the OS's tick {tick:g} ms")
+    print(f"java {version}, repeat delay {delay} ms, interval {speed} ms, the OS's default tick {default_tick:g} ms "
+          f"(now {now_tick:g} ms)")
     for name, holds_of in report.items():
         for key, gaps, lates in holds_of:
             print(f"  {name} {KEY_NAMES.get(key, chr(key))}: intervals {' '.join(f'{g:.1f}' for g in gaps)}"

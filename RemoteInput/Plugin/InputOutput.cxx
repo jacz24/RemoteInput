@@ -117,53 +117,41 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
     #endif
 }
 
-//A key repeat waits for the first tick of the OS's clock at or after its deadline, as the keyboard driver's kernel timer
-//fires (#105): at the default tick of 15.625 ms and 33 ms, 2 ticks between most repeats and 3 between one in nine. The tick
-//is the finest any process asked for, and the client's own sleeps do not follow it: Windows 11 gives a process that asked
-//for none 15.6 ms, so they woke 5-16 ms after their deadlines at a tick of 1 ms. The interrupt time steps at each tick.
+//The keyboard's repeats come at the first tick of the OS's default timer at or after each deadline, whatever finer tick
+//another process asked for (#105): at 33 ms, 2 ticks between most and 3 between one in ten. The client's own timers take
+//its tick (a plain timer in the JVM woke 0-1.6 ms after its deadline), so a repeat rounds its deadline up to the default
+//tick itself, then waits on a high-resolution timer (0.03-0.76 ms late on the PC, never early). The client's sleep_until
+//woke early and spun to the deadline, or woke a tick late, which gave intervals of 18-30 ms.
 static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexcept
 {
     #if defined(_WIN32) || defined(_WIN64)
-    //Windows 10's, in KernelBase alone.
-    using QueryInterruptTime = VOID (WINAPI*)(PULONGLONG);
-    static const HMODULE kernelbase = GetModuleHandleW(L"kernelbase.dll");
-    static const auto query_tick = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTime"));
-    static const auto query_now = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTimePrecise"));
-    if (query_tick && query_now)
-    {
-        using interrupt_time = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
-        const std::int64_t one_ms = interrupt_time(std::chrono::milliseconds(1)).count();
-        ULONGLONG now = 0;
-        query_now(&now);
-        std::int64_t ahead = std::chrono::duration_cast<interrupt_time>(deadline - std::chrono::steady_clock::now()).count();
-        ULONGLONG due = static_cast<ULONGLONG>(static_cast<std::int64_t>(now) + ahead);
+    using hundred_ns = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
+    static const hundred_ns tick = [] {
+        using QueryTimerResolution = LONG (NTAPI*)(PULONG, PULONG, PULONG);
+        auto query = reinterpret_cast<QueryTimerResolution>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryTimerResolution"));
+        ULONG coarsest = 0, finest = 0, current = 0;
+        return hundred_ns((query && query(&coarsest, &finest, &current) == 0 && coarsest) ? coarsest : 156250);
+    }();
 
-        //A high-resolution timer woke 0.03-0.76 ms late on the PC, never early: sleep to 1 ms before the deadline.
-        //shortcut: spins to the tick, up to 16 ms of each 33 at the default tick while a key repeats; predict the tick
-        //from its length (NtQueryTimerResolution) if the cost shows.
-        HANDLE timer = ahead > one_ms ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE) : nullptr;
+    //shortcut: the grid's phase is the steady clock's and fixed, as the OS's has none to read; the keyboard's drifts (its
+    //repeats folded at 15.625 ms: a phase concentration of 0.15-0.42 over a hold, the plugin's about 0.99), so a detector
+    //that folds repeat times could tell them apart: model the drift if such a check shows up.
+    deadline += (tick - deadline.time_since_epoch() % tick) % tick;
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE);
+    if (!timer)
+    {
+        //Before Windows 10 1803: a plain timer, on the client's tick.
+        timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+    }
+    if (timer)
+    {
         LARGE_INTEGER relative;
-        relative.QuadPart = -(ahead - one_ms);
-        if (timer && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
+        relative.QuadPart = -std::chrono::ceil<hundred_ns>(deadline - std::chrono::steady_clock::now()).count();
+        if (relative.QuadPart < 0 && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
         {
             WaitForSingleObject(timer, INFINITE);
         }
-        else if (ahead > one_ms)
-        {
-            //Before Windows 10 1803 there is none, and the client's sleep can wake a coarse tick late.
-            std::this_thread::sleep_until(deadline - std::chrono::milliseconds(20));
-        }
-
-        if (timer)
-        {
-            CloseHandle(timer);
-        }
-
-        ULONGLONG tick = 0;
-        while (query_tick(&tick), tick < due)
-        {
-            std::this_thread::yield();
-        }
+        CloseHandle(timer);
         return;
     }
     #endif
