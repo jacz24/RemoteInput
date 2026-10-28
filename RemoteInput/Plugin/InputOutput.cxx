@@ -38,10 +38,6 @@
 #undef VK_RETURN
 #endif // VK_SHIFT
 
-#if (defined(_WIN32) || defined(_WIN64)) && !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
-#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002 //Windows 10 1803's: older MinGW headers lack it.
-#endif
-
 enum ControlKeys : std::uint32_t
 {
     VK_FUNCTION = 0x0,
@@ -117,53 +113,24 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
     #endif
 }
 
-//A key repeat waits for the first tick of the OS's clock at or after its deadline, as the keyboard driver's kernel timer
-//fires (#105): at the default tick of 15.625 ms and 33 ms, 2 ticks between most repeats and 3 between one in nine. The tick
-//is the finest any process asked for, and the client's own sleeps do not follow it: Windows 11 gives a process that asked
-//for none 15.6 ms, so they woke 5-16 ms after their deadlines at a tick of 1 ms. The interrupt time steps at each tick.
+//A key repeat waits on a plain waitable timer to its deadline, which fires at the first tick of the OS's default timer
+//(15.625 ms) at or after it, as the keyboard's repeats come (#105): at 33 ms, 2 ticks between most repeats and 3 between one
+//in ten, at a global tick of 1 ms too. The client's sleep_until woke early and spun to the deadline, or woke a tick late,
+//which gave intervals of 18-30 ms.
 static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexcept
 {
     #if defined(_WIN32) || defined(_WIN64)
-    //Windows 10's, in KernelBase alone.
-    using QueryInterruptTime = VOID (WINAPI*)(PULONGLONG);
-    static const HMODULE kernelbase = GetModuleHandleW(L"kernelbase.dll");
-    static const auto query_tick = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTime"));
-    static const auto query_now = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTimePrecise"));
-    if (query_tick && query_now)
+    //shortcut: a client that asked for a finer tick (timeBeginPeriod) gets its timers on that tick, so its repeats come an
+    //even interval apart, with no long one; KeyLog on Temurin 25 asks for none, the harness and RuneLite are untried.
+    if (HANDLE timer = CreateWaitableTimerW(nullptr, FALSE, nullptr))
     {
-        using interrupt_time = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
-        const std::int64_t one_ms = interrupt_time(std::chrono::milliseconds(1)).count();
-        ULONGLONG now = 0;
-        query_now(&now);
-        std::int64_t ahead = std::chrono::duration_cast<interrupt_time>(deadline - std::chrono::steady_clock::now()).count();
-        ULONGLONG due = static_cast<ULONGLONG>(static_cast<std::int64_t>(now) + ahead);
-
-        //A high-resolution timer woke 0.03-0.76 ms late on the PC, never early: sleep to 1 ms before the deadline.
-        //shortcut: spins to the tick, up to 16 ms of each 33 at the default tick while a key repeats; predict the tick
-        //from its length (NtQueryTimerResolution) if the cost shows.
-        HANDLE timer = ahead > one_ms ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE) : nullptr;
         LARGE_INTEGER relative;
-        relative.QuadPart = -(ahead - one_ms);
-        if (timer && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
+        relative.QuadPart = -std::chrono::duration_cast<std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>>(deadline - std::chrono::steady_clock::now()).count();
+        if (relative.QuadPart < 0 && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
         {
             WaitForSingleObject(timer, INFINITE);
         }
-        else if (ahead > one_ms)
-        {
-            //Before Windows 10 1803 there is none, and the client's sleep can wake a coarse tick late.
-            std::this_thread::sleep_until(deadline - std::chrono::milliseconds(20));
-        }
-
-        if (timer)
-        {
-            CloseHandle(timer);
-        }
-
-        ULONGLONG tick = 0;
-        while (query_tick(&tick), tick < due)
-        {
-            std::this_thread::yield();
-        }
+        CloseHandle(timer);
         return;
     }
     #endif
