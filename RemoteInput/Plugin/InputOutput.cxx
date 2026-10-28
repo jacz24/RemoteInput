@@ -125,17 +125,18 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
 static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexcept
 {
     #if defined(_WIN32) || defined(_WIN64)
-    using tick_units = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
-    static const tick_units tick = [] {
+    using hundred_ns = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
+    static const hundred_ns tick = [] {
         using QueryTimerResolution = LONG (NTAPI*)(PULONG, PULONG, PULONG);
         auto query = reinterpret_cast<QueryTimerResolution>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryTimerResolution"));
         ULONG coarsest = 0, finest = 0, current = 0;
-        return tick_units(query && query(&coarsest, &finest, &current) == 0 && coarsest ? coarsest : 156250);
+        return hundred_ns((query && query(&coarsest, &finest, &current) == 0 && coarsest) ? coarsest : 156250);
     }();
 
-    //shortcut: the grid's phase is the steady clock's, as the OS's has none to read (a plain timer's wakes in a process that
-    //asked for no finer tick fell at any point of the interrupt time's 15.625 ms); the shape is the same at any phase.
-    auto due = deadline + (tick - deadline.time_since_epoch() % tick) % tick;
+    //shortcut: the grid's phase is the steady clock's and fixed, as the OS's has none to read; the keyboard's drifts (its
+    //repeats folded at 15.625 ms: a phase concentration of 0.15-0.42 over a hold, the plugin's about 0.99), so a detector
+    //that folds repeat times could tell them apart: model the drift if such a check shows up.
+    deadline += (tick - deadline.time_since_epoch() % tick) % tick;
     HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE);
     if (!timer)
     {
@@ -145,7 +146,7 @@ static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexce
     if (timer)
     {
         LARGE_INTEGER relative;
-        relative.QuadPart = -std::chrono::duration_cast<tick_units>(due - std::chrono::steady_clock::now()).count();
+        relative.QuadPart = -std::chrono::ceil<hundred_ns>(deadline - std::chrono::steady_clock::now()).count();
         if (relative.QuadPart < 0 && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
         {
             WaitForSingleObject(timer, INFINITE);
