@@ -39,7 +39,7 @@
 #endif // VK_SHIFT
 
 #if (defined(_WIN32) || defined(_WIN64)) && !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
-#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002 //Windows 10 1803's: older MinGW headers lack it.
 #endif
 
 enum ControlKeys : std::uint32_t
@@ -131,23 +131,31 @@ static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexce
     static const auto query_now = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTimePrecise"));
     if (query_tick && query_now)
     {
+        using interrupt_time = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
+        const std::int64_t one_ms = interrupt_time(std::chrono::milliseconds(1)).count();
         ULONGLONG now = 0;
         query_now(&now);
-        std::int64_t ahead = std::chrono::duration_cast<std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>>(deadline - std::chrono::steady_clock::now()).count();
+        std::int64_t ahead = std::chrono::duration_cast<interrupt_time>(deadline - std::chrono::steady_clock::now()).count();
         ULONGLONG due = static_cast<ULONGLONG>(static_cast<std::int64_t>(now) + ahead);
 
         //A high-resolution timer woke 0.03-0.76 ms late on the PC, never early: sleep to 1 ms before the deadline.
         //shortcut: spins to the tick, up to 16 ms of each 33 at the default tick while a key repeats; predict the tick
         //from its length (NtQueryTimerResolution) if the cost shows.
-        HANDLE timer = ahead > 10000 ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS) : nullptr;
+        HANDLE timer = ahead > one_ms ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE) : nullptr;
+        LARGE_INTEGER relative;
+        relative.QuadPart = -(ahead - one_ms);
+        if (timer && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
+        {
+            WaitForSingleObject(timer, INFINITE);
+        }
+        else if (ahead > one_ms)
+        {
+            //Before Windows 10 1803 there is none, and the client's sleep can wake a coarse tick late.
+            std::this_thread::sleep_until(deadline - std::chrono::milliseconds(20));
+        }
+
         if (timer)
         {
-            LARGE_INTEGER relative;
-            relative.QuadPart = -(ahead - 10000);
-            if (SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
-            {
-                WaitForSingleObject(timer, INFINITE);
-            }
             CloseHandle(timer);
         }
 

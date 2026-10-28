@@ -21,8 +21,8 @@ driver repeats on a kernel timer, which fires at the first tick of the OS's cloc
 the finest any process asked for (timeBeginPeriod), else 15.625 ms. The operator's keyboard at 33 ms and a tick of
 15.625 ms (#17's key-log.tsv): 242 intervals of 30-33 ms (2 ticks) and 27 of 46-49 ms (3), a mean of 32.93 ms over 5.3 s,
 so a deadline each whole 33 ms. The checks: each repeat at most a tick after its deadline and not before it, no interval
-under 30 ms, and the share of 40 ms or more within 2 SE of the keyboard's at its tick, or none at a tick under which a
-tick more than the interval stays under 40 ms. The tick must not change during the run.
+under 30 ms (or under the shorter interval a coarser tick gives), and the share of 40 ms or more within 2 SE of the
+keyboard's at its tick, or of the share another tick gives. The tick must not change during the run.
 
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
@@ -40,8 +40,8 @@ import time
 PRESSED, TYPED, RELEASED = 401, 400, 402
 VK_ESCAPE, VK_UP, VK_A, VK_B = 0x1B, 0x26, 0x41, 0x42
 KEY_NAMES = {VK_ESCAPE: "Escape", VK_UP: "Up"}
-# shortcut: a repeat ends its sleep on Windows's timer tick (15.6 ms unless a process raised the rate), so a first repeat
-# may come up to a tick and the post after its delay; the keyboard's 507-511 ms fall inside. Measure again on a new timer.
+# A first repeat comes at the first tick of the OS's clock at or after its delay (#105), up to a tick (15.625 ms unless a
+# process asked for a finer one) and the post after it; the keyboard's 507-511 ms fall inside.
 # The check reads the plugin's own when: the arrival times carry each post's lag, about 0.3 ms either way.
 FIRST_REPEAT_SLACK_MS = 20
 # The operator's keyboard (#17's key-log.tsv): intervals of LONG_MS or more of all, at its tick; none under SHORT_MS.
@@ -54,7 +54,8 @@ LAG_MS = 1
 def os_tick_ms():
     """The OS's clock tick in ms (NtQueryTimerResolution's current)."""
     least, most, current = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_ulong()
-    ctypes.WinDLL("ntdll").NtQueryTimerResolution(ctypes.byref(least), ctypes.byref(most), ctypes.byref(current))
+    if ctypes.WinDLL("ntdll").NtQueryTimerResolution(ctypes.byref(least), ctypes.byref(most), ctypes.byref(current)):
+        sys.exit("NtQueryTimerResolution failed")
     return current.value / 10_000
 
 
@@ -81,20 +82,24 @@ def repeat_report(events, delay_ms, speed_ms):
 
 
 def check_shape(report, tick_ms, speed_ms):
-    """The faults of the repeats' shape against the keyboard's: a post at the first tick at or after each deadline."""
+    """The faults of the repeats' shape against the keyboard's: a post at the first tick at or after each deadline, so
+    each interval is the ticks the setting spans or one more, the longer in frac(setting / tick) of them."""
     faults = []
-    lates = [late for _, _, lates in report for late in lates]
+    lates = [late for _, _, of_hold in report for late in of_hold]
     off = [late for late in lates if not -LAG_MS <= late <= tick_ms + LAG_MS]
     if off:
         faults.append(f"{len(off)} of {len(lates)} repeats outside 0-{tick_ms:g} ms after their deadlines "
                       f"({min(off):.1f} to {max(off):.1f})")
-    pairs = [(a, b) for _, gaps, _ in report for a, b in zip([None] + gaps, gaps)]
-    short = [(a, b) for a, b in pairs if b < SHORT_MS]
+    shorter = speed_ms // tick_ms * tick_ms
+    short_ms = min(SHORT_MS, shorter - LAG_MS)
+    gap_pairs = [(before, gap) for _, gaps, _ in report for before, gap in zip([None] + gaps, gaps)]
+    short = [(before, gap) for before, gap in gap_pairs if gap < short_ms]
     if short:
-        after = sum(a is not None and a >= LONG_MS for a, _ in short)
-        faults.append(f"{len(short)} interval(s) under {SHORT_MS} ms ({min(b for _, b in short):.1f} the least), "
+        after = sum(before is not None and before >= LONG_MS for before, _ in short)
+        faults.append(f"{len(short)} interval(s) under {short_ms:g} ms ({min(gap for _, gap in short):.1f} the least), "
                       f"{after} of them after one of {LONG_MS} ms or more")
-    n, n_long = len(pairs), sum(b >= LONG_MS for _, b in pairs)
+    n, n_long = len(gap_pairs), sum(gap >= LONG_MS for _, gap in gap_pairs)
+    longer = (speed_ms / tick_ms) % 1 if shorter + tick_ms >= LONG_MS else 0
     if not n:
         faults.append("no intervals")
     elif abs(tick_ms - KEYBOARD_TICK_MS) < 0.1:
@@ -103,8 +108,9 @@ def check_shape(report, tick_ms, speed_ms):
         if abs(n_long / n - KEYBOARD_LONG / KEYBOARD_INTERVALS) > 2 * se:
             faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, outside 2 SE ({2 * se:.3f}) of the "
                           f"keyboard's {KEYBOARD_LONG} of {KEYBOARD_INTERVALS}")
-    elif (speed_ms // tick_ms + 1) * tick_ms < LONG_MS and n_long:
-        faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, at a tick of {tick_ms:g} ms")
+    elif abs(n_long / n - longer) > 2 * (longer * (1 - longer) / n) ** 0.5:
+        faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, where a tick of {tick_ms:g} ms gives "
+                      f"{longer:.3f} of them")
     return faults
 
 
