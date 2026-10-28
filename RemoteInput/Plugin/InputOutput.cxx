@@ -38,6 +38,10 @@
 #undef VK_RETURN
 #endif // VK_SHIFT
 
+#if (defined(_WIN32) || defined(_WIN64)) && !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002 //Windows 10 1803's: older MinGW headers lack it.
+#endif
+
 enum ControlKeys : std::uint32_t
 {
     VK_FUNCTION = 0x0,
@@ -111,6 +115,64 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
     #else
     return id == java::MouseEvent::MouseEventCodes::MOUSE_PRESSED && button == 3;
     #endif
+}
+
+//A key repeat waits for the first tick of the OS's clock at or after its deadline, as the keyboard driver's kernel timer
+//fires (#105): at the default tick of 15.625 ms and 33 ms, 2 ticks between most repeats and 3 between one in nine. The tick
+//is the finest any process asked for, and the client's own sleeps do not follow it: Windows 11 gives a process that asked
+//for none 15.6 ms, so they woke 5-16 ms after their deadlines at a tick of 1 ms. The interrupt time steps at each tick.
+static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexcept
+{
+    #if defined(_WIN32) || defined(_WIN64)
+    //Windows 10's, in KernelBase alone.
+    using QueryInterruptTime = VOID (WINAPI*)(PULONGLONG);
+    static const HMODULE kernelbase = GetModuleHandleW(L"kernelbase.dll");
+    static const auto query_tick = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTime"));
+    static const auto query_now = reinterpret_cast<QueryInterruptTime>(GetProcAddress(kernelbase, "QueryInterruptTimePrecise"));
+    if (query_tick && query_now)
+    {
+        using interrupt_time = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
+        const std::int64_t one_ms = interrupt_time(std::chrono::milliseconds(1)).count();
+        ULONGLONG now = 0;
+        query_now(&now);
+        std::int64_t ahead = std::chrono::duration_cast<interrupt_time>(deadline - std::chrono::steady_clock::now()).count();
+        ULONGLONG due = static_cast<ULONGLONG>(static_cast<std::int64_t>(now) + ahead);
+
+        //A high-resolution timer woke 0.03-0.76 ms late on the PC, never early: sleep to 1 ms before the deadline.
+        //shortcut: spins to the tick, up to 16 ms of each 33 at the default tick while a key repeats; predict the tick
+        //from its length (NtQueryTimerResolution) if the cost shows.
+        HANDLE timer = ahead > one_ms ? CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE) : nullptr;
+        LARGE_INTEGER relative;
+        relative.QuadPart = -(ahead - one_ms);
+        if (timer && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
+        {
+            WaitForSingleObject(timer, INFINITE);
+        }
+        else if (ahead > one_ms)
+        {
+            //Before Windows 10 1803 there is none, and the client's sleep can wake a coarse tick late.
+            std::this_thread::sleep_until(deadline - std::chrono::milliseconds(20));
+        }
+
+        if (timer)
+        {
+            CloseHandle(timer);
+        }
+
+        ULONGLONG tick = 0;
+        while (query_tick(&tick), tick < due)
+        {
+            std::this_thread::yield();
+        }
+        return;
+    }
+    #endif
+
+    //Windows's Sleep can end up to a timer tick early: the first repeat came 499 ms after a press at a delay of 500 (#17).
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_until(deadline);
+    }
 }
 
 InputOutput::InputOutput(Reflection* reflection) noexcept : vm(nullptr), applet(reflection->getApplet()), mutex(), input_thread(new ThreadPool(2)), keyboard_input_enabled(true), mouse_input_enabled(true), currently_held_key(-1), repeat_task(0), held_keys(), x(-1), y(-1), w(-1), h(-1), click_count(0), click_button(0), click_when(0), click_x(0), click_y(0), double_click_time(500), clickable_buttons(0), keyboard_speed(0), keyboard_repeat_delay(0), mouse_buttons(), focus_mu(206.9), focus_sigma(11), focus_tau(27.4)
@@ -303,7 +365,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                     //Repeats keep the OS timer's schedule from the press: the first after the delay, then one each interval, however long a post takes.
                     auto next = pressed_at + std::chrono::milliseconds(this->keyboard_repeat_delay);
                     input_thread->add_task([&, task, next](std::atomic_bool &stopped) mutable {
-                        std::this_thread::sleep_until(next);
+                        wait_for_tick(next);
 
                         //A key released within the repeat delay never repeats, as on a keyboard: end before the attach.
                         if (currently_held_key == -1 || repeat_task != task)
@@ -327,11 +389,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 break;
                             }
 
-                            //Windows's Sleep can end up to a timer tick early: the first repeat came 499 ms after a press at a delay of 500 (#17).
-                            while (std::chrono::steady_clock::now() < next)
-                            {
-                                std::this_thread::sleep_until(next);
-                            }
+                            wait_for_tick(next);
 
                             //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
                             auto now = std::chrono::steady_clock::now();

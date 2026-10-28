@@ -15,6 +15,15 @@ plugin's exports:
             B's press spans two of A's repeat times (#104). Where B counted as held before its task was the newest, A's
             task posted a repeat of B there, before B's delay; at real speed the window is two posts long.
 
+The shape of the repeats (#105), over every hold: each key's repeats have deadlines at its press, the delay, then one each
+interval, and the probe prints each interval and each repeat's lateness against its deadline, by arrival. The keyboard's
+driver repeats on a kernel timer, which fires at the first tick of the OS's clock at or after each deadline; the tick is
+the finest any process asked for (timeBeginPeriod), else 15.625 ms. The operator's keyboard at 33 ms and a tick of
+15.625 ms (#17's key-log.tsv): 242 intervals of 30-33 ms (2 ticks) and 27 of 46-49 ms (3), a mean of 32.93 ms over 5.3 s,
+so a deadline each whole 33 ms. The checks: each repeat at most a tick after its deadline and not before it, no interval
+under 30 ms (or under the shorter interval a coarser tick gives), and the share of 40 ms or more within 2 SE of the
+keyboard's at its tick, or of the share another tick gives. The tick must not change during the run.
+
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
 JVM_OPTS adds JVM options (-Xcheck:jni). Exit 0 only when every check passes.
@@ -30,10 +39,79 @@ import time
 
 PRESSED, TYPED, RELEASED = 401, 400, 402
 VK_ESCAPE, VK_UP, VK_A, VK_B = 0x1B, 0x26, 0x41, 0x42
-# shortcut: a repeat ends its sleep on Windows's timer tick (15.6 ms unless a process raised the rate), so a first repeat
-# may come up to a tick and the post after its delay; the keyboard's 507-511 ms fall inside. Measure again on a new timer.
+KEY_NAMES = {VK_ESCAPE: "Escape", VK_UP: "Up"}
+# A first repeat comes at the first tick of the OS's clock at or after its delay (#105), up to a tick (15.625 ms unless a
+# process asked for a finer one) and the post after it; the keyboard's 507-511 ms fall inside.
 # The check reads the plugin's own when: the arrival times carry each post's lag, about 0.3 ms either way.
 FIRST_REPEAT_SLACK_MS = 20
+# The operator's keyboard (#17's key-log.tsv): intervals of LONG_MS or more of all, at its tick; none under SHORT_MS.
+KEYBOARD_LONG, KEYBOARD_INTERVALS, KEYBOARD_TICK_MS = 27, 269, 15.625
+LONG_MS, SHORT_MS = 40, 30
+# Each arrival carries its post's lag, about 0.3 ms either way (8217919).
+LAG_MS = 1
+
+
+def os_tick_ms():
+    """The OS's clock tick in ms (NtQueryTimerResolution's current)."""
+    least, most, current = ctypes.c_ulong(), ctypes.c_ulong(), ctypes.c_ulong()
+    if ctypes.WinDLL("ntdll").NtQueryTimerResolution(ctypes.byref(least), ctypes.byref(most), ctypes.byref(current)):
+        sys.exit("NtQueryTimerResolution failed")
+    return current.value / 10_000
+
+
+def repeat_holds(events):
+    """Each key's run of presses as (key, its press's arrival, its repeats' arrivals), in µs: a run ends at its key's
+    release or at another key's press."""
+    holds, held = [], None
+    for kind, code, us, _ in events:
+        if kind == PRESSED and held and held[0] == code:
+            held[2].append(us)
+        elif kind == PRESSED:
+            held = (code, us, [])
+            holds.append(held)
+        elif kind == RELEASED and held and held[0] == code:
+            held = None
+    return holds
+
+
+def repeat_report(events, delay_ms, speed_ms):
+    """Each hold's key, its intervals between repeats and each repeat's lateness against its deadline, in ms by arrival."""
+    return [(key, [(b - a) / 1000 for a, b in zip(reps, reps[1:])],
+             [(us - press) / 1000 - delay_ms - k * speed_ms for k, us in enumerate(reps)])
+            for key, press, reps in repeat_holds(events)]
+
+
+def check_shape(report, tick_ms, speed_ms):
+    """The faults of the repeats' shape against the keyboard's: a post at the first tick at or after each deadline, so
+    each interval is the ticks the setting spans or one more, the longer in frac(setting / tick) of them."""
+    faults = []
+    lates = [late for _, _, of_hold in report for late in of_hold]
+    off = [late for late in lates if not -LAG_MS <= late <= tick_ms + LAG_MS]
+    if off:
+        faults.append(f"{len(off)} of {len(lates)} repeats outside 0-{tick_ms:g} ms after their deadlines "
+                      f"({min(off):.1f} to {max(off):.1f})")
+    shorter = speed_ms // tick_ms * tick_ms
+    short_ms = min(SHORT_MS, shorter - LAG_MS)
+    gap_pairs = [(before, gap) for _, gaps, _ in report for before, gap in zip([None] + gaps, gaps)]
+    short = [(before, gap) for before, gap in gap_pairs if gap < short_ms]
+    if short:
+        after = sum(before is not None and before >= LONG_MS for before, _ in short)
+        faults.append(f"{len(short)} interval(s) under {short_ms:g} ms ({min(gap for _, gap in short):.1f} the least), "
+                      f"{after} of them after one of {LONG_MS} ms or more")
+    n, n_long = len(gap_pairs), sum(gap >= LONG_MS for _, gap in gap_pairs)
+    longer = (speed_ms / tick_ms) % 1 if shorter + tick_ms >= LONG_MS else 0
+    if not n:
+        faults.append("no intervals")
+    elif abs(tick_ms - KEYBOARD_TICK_MS) < 0.1:
+        p = (n_long + KEYBOARD_LONG) / (n + KEYBOARD_INTERVALS)
+        se = (p * (1 - p) * (1 / n + 1 / KEYBOARD_INTERVALS)) ** 0.5
+        if abs(n_long / n - KEYBOARD_LONG / KEYBOARD_INTERVALS) > 2 * se:
+            faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, outside 2 SE ({2 * se:.3f}) of the "
+                          f"keyboard's {KEYBOARD_LONG} of {KEYBOARD_INTERVALS}")
+    elif abs(n_long / n - longer) > 2 * (longer * (1 - longer) / n) ** 0.5:
+        faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, where a tick of {tick_ms:g} ms gives "
+                      f"{longer:.3f} of them")
+    return faults
 
 
 def runs(codes):
@@ -92,18 +170,6 @@ def check_rollover(events, delay_ms, first_release):
             faults.append(f"{chr(key)}'s first repeat {whens[1] - whens[0]} ms after its press by the plugin's clock, "
                           f"expected {delay_ms}-{delay_ms + FIRST_REPEAT_SLACK_MS}")
     return faults
-
-
-def timings(events):
-    """Each key's first-repeat delay and its later intervals' least, median and most, in ms by arrival, for the report."""
-    out = {}
-    for key in sorted({c for k, c, _, _ in events if k == PRESSED}):
-        times = [us for k, c, us, _ in events if k == PRESSED and c == key]
-        gaps = [(b - a) / 1000 for a, b in zip(times, times[1:])]
-        later = gaps[1:] or [0]
-        if gaps:
-            out[chr(key)] = (gaps[0], min(later), statistics.median(later), max(later))
-    return out
 
 
 def main(java, dll):
@@ -177,6 +243,7 @@ def main(java, dll):
             time.sleep(1)
 
     rng = random.Random(14)  # ctl14.cxx's seed
+    tick = os_tick_ms()
     presses, presses_threads = phase(lambda: holds(VK_ESCAPE, 10, lambda: rng.randint(20, 125), 400))
     held, held_threads = phase(lambda: holds(VK_UP, 10, lambda: delay + 300, 700))
     rollover, _ = phase(lambda: two_keys(VK_B))
@@ -200,12 +267,24 @@ def main(java, dll):
     for name, events_of, first_release in [("rollover", rollover, VK_B), ("older", older, VK_A), ("slow", slow, VK_B)]:
         faults = check_rollover(events_of, delay, first_release)
         checks.append((f"{name}: the keyboard's order and first repeats", not faults, "; ".join(faults)))
+    report = {name: repeat_report(events_of, delay, speed)
+              for name, events_of in [("holds", held), ("rollover", rollover), ("older", older), ("slow", slow)]}
+    shape = check_shape([hold for holds_of in report.values() for hold in holds_of], tick, speed)
+    end_tick = os_tick_ms()
+    checks.append(("repeats: the keyboard's shape, each at the first tick after its deadline", not shape, "; ".join(shape)))
+    checks.append(("the OS's tick held through the run", end_tick == tick, f"{tick:g} ms, then {end_tick:g} ms"))
 
-    print(f"java {version}, repeat delay {delay} ms, interval {speed} ms")
+    print(f"java {version}, repeat delay {delay} ms, interval {speed} ms, the OS's tick {tick:g} ms")
+    for name, holds_of in report.items():
+        for key, gaps, lates in holds_of:
+            print(f"  {name} {KEY_NAMES.get(key, chr(key))}: intervals {' '.join(f'{g:.1f}' for g in gaps)}"
+                  f" | late {' '.join(f'{late:.1f}' for late in lates)}")
     for name, events_of in [("rollover", rollover), ("older", older), ("slow", slow)]:
-        for key, (first, lo, med, hi) in timings(events_of).items():
-            print(f"  {name} {key}: first repeat {first:.1f} ms, then each {lo:.1f}-{hi:.1f} ms (median {med:.1f})")
         print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _, _ in events_of if k == PRESSED)]}")
+    gaps = sorted(g for holds_of in report.values() for _, gaps_of, _ in holds_of for g in gaps_of)
+    if gaps:
+        print(f"  intervals: {len(gaps)}, {gaps[0]:.1f}-{gaps[-1]:.1f} ms (median {statistics.median(gaps):.1f}), "
+              f"{sum(g < SHORT_MS for g in gaps)} under {SHORT_MS}, {sum(g >= LONG_MS for g in gaps)} of {LONG_MS} or more")
     for name, ok, detail in checks:
         print(f"{'PASS' if ok else 'FAIL'}: {name}" + ("" if ok else f" -- {detail}"))
     if not alive:
