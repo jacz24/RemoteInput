@@ -38,6 +38,10 @@
 #undef VK_RETURN
 #endif // VK_SHIFT
 
+#if (defined(_WIN32) || defined(_WIN64)) && !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002 //Windows 10 1803's: older MinGW headers lack it.
+#endif
+
 enum ControlKeys : std::uint32_t
 {
     VK_FUNCTION = 0x0,
@@ -113,19 +117,35 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
     #endif
 }
 
-//A key repeat waits on a plain waitable timer to its deadline, which fires at the first tick of the OS's default timer
-//(15.625 ms) at or after it, as the keyboard's repeats come (#105): at 33 ms, 2 ticks between most repeats and 3 between one
-//in ten, at a global tick of 1 ms too. The client's sleep_until woke early and spun to the deadline, or woke a tick late,
-//which gave intervals of 18-30 ms.
+//The keyboard's repeats come at the first tick of the OS's default timer at or after each deadline, whatever finer tick
+//another process asked for (#105): at 33 ms, 2 ticks between most and 3 between one in ten. The client's own timers take
+//its tick (a plain timer in the JVM woke 0-1.6 ms after its deadline), so a repeat rounds its deadline up to the default
+//tick itself, then waits on a high-resolution timer (0.03-0.76 ms late on the PC, never early). The client's sleep_until
+//woke early and spun to the deadline, or woke a tick late, which gave intervals of 18-30 ms.
 static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexcept
 {
     #if defined(_WIN32) || defined(_WIN64)
-    //shortcut: a client that asked for a finer tick (timeBeginPeriod) gets its timers on that tick, so its repeats come an
-    //even interval apart, with no long one; KeyLog on Temurin 25 asks for none, the harness and RuneLite are untried.
-    if (HANDLE timer = CreateWaitableTimerW(nullptr, FALSE, nullptr))
+    using tick_units = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
+    static const tick_units tick = [] {
+        using QueryTimerResolution = LONG (NTAPI*)(PULONG, PULONG, PULONG);
+        auto query = reinterpret_cast<QueryTimerResolution>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryTimerResolution"));
+        ULONG coarsest = 0, finest = 0, current = 0;
+        return tick_units(query && query(&coarsest, &finest, &current) == 0 && coarsest ? coarsest : 156250);
+    }();
+
+    //shortcut: the grid's phase is the steady clock's, as the OS's has none to read (a plain timer's wakes in a process that
+    //asked for no finer tick fell at any point of the interrupt time's 15.625 ms); the shape is the same at any phase.
+    auto due = deadline + (tick - deadline.time_since_epoch() % tick) % tick;
+    HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE);
+    if (!timer)
+    {
+        //Before Windows 10 1803: a plain timer, on the client's tick.
+        timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+    }
+    if (timer)
     {
         LARGE_INTEGER relative;
-        relative.QuadPart = -std::chrono::duration_cast<std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>>(deadline - std::chrono::steady_clock::now()).count();
+        relative.QuadPart = -std::chrono::duration_cast<tick_units>(due - std::chrono::steady_clock::now()).count();
         if (relative.QuadPart < 0 && SetWaitableTimer(timer, &relative, 0, nullptr, nullptr, FALSE))
         {
             WaitForSingleObject(timer, INFINITE);
