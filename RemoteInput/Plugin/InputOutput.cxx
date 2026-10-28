@@ -274,6 +274,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 std::int32_t modifiers = GetActiveKeyModifiers();
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
+                jchar key_char = NativeKeyCodeToChar(code, modifiers);
 
                 java::KeyEvent::Post(env,
                                      &receiver,
@@ -281,17 +282,21 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                      when,
                                      modifiers,
                                      keycode,
-                                     NativeKeyCodeToChar(code, modifiers),
+                                     key_char,
                                      location);
 
-                java::KeyEvent::Post(env,
-                                     &receiver,
-                                     java::KeyEvent::KeyCodes::KEY_TYPED,
-                                     when,
-                                     modifiers,
-                                     0,
-                                     NativeKeyCodeToChar(code, modifiers),
-                                     java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
+                //A key with no char (an arrow, an F-key) gets no WM_CHAR on Windows, so real AWT posts no KEY_TYPED (#82).
+                if (key_char != static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED))
+                {
+                    java::KeyEvent::Post(env,
+                                         &receiver,
+                                         java::KeyEvent::KeyCodes::KEY_TYPED,
+                                         when,
+                                         modifiers,
+                                         0,
+                                         key_char,
+                                         java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
+                }
 
                 if (this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
                 {
@@ -352,6 +357,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                             std::int32_t modifiers = GetActiveKeyModifiers();
                             std::int32_t keycode = GetJavaKeyCode(code);
                             std::int32_t location = GetKeyLocation(code);
+                            jchar key_char = NativeKeyCodeToChar(code, modifiers);
 
                             java::KeyEvent::Post(env,
                                                  &receiver,
@@ -359,17 +365,21 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                                  when,
                                                  modifiers,
                                                  keycode,
-                                                 NativeKeyCodeToChar(code, modifiers),
+                                                 key_char,
                                                  location);
 
-                            java::KeyEvent::Post(env,
-                                                 &receiver,
-                                                 java::KeyEvent::KeyCodes::KEY_TYPED,
-                                                 when,
-                                                 modifiers,
-                                                 0,
-                                                 NativeKeyCodeToChar(code, modifiers),
-                                                 java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
+                            //Each repeat is a WM_KEYDOWN: no KEY_TYPED for a key with no char, as for its press (#82).
+                            if (key_char != static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED))
+                            {
+                                java::KeyEvent::Post(env,
+                                                     &receiver,
+                                                     java::KeyEvent::KeyCodes::KEY_TYPED,
+                                                     when,
+                                                     modifiers,
+                                                     0,
+                                                     key_char,
+                                                     java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
+                            }
                         }
                     });
                 }
@@ -1452,9 +1462,9 @@ jchar InputOutput::NativeKeyCodeToChar(std::int32_t keycode, std::int32_t modifi
         0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
         0x0008, 0x0009, 0x0000, 0x0000, 0x0000, 0x000A, 0x0000, 0x0000,
         0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+        0x0000, 0x0000, 0x0000, 0x001B, 0x0000, 0x0000, 0x0000, 0x0000,
         0x0020, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
-        0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+        0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x007F, 0x0000,
         0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037,
         0x0038, 0x0039, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
         0x0000, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067,
@@ -1492,7 +1502,9 @@ jchar InputOutput::NativeKeyCodeToChar(std::int32_t keycode, std::int32_t modifi
             return static_cast<jchar>(shift_chars[index]);
         }
     }
-    return static_cast<jchar>(mapping[keycode]);
+    //0 is no char: real AWT gives such a key's press and release CHAR_UNDEFINED (#82). Escape is 27, and Delete 127, as
+    //the JDK's Windows peer gives them.
+    return static_cast<jchar>(mapping[keycode] ? mapping[keycode] : java::KeyEvent::KeyCodes::CHAR_UNDEFINED);
 }
 
 std::int32_t InputOutput::CharToJavaKeyCode(char c) const noexcept
