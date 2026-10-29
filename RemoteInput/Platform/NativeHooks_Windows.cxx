@@ -1553,13 +1553,23 @@ static void InstallInputFilter() noexcept
     }
 
     HWND frame = reinterpret_cast<HWND>(control_center->reflect_frame_native_handle(env));
-    HMODULE module = nullptr;
-    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                      reinterpret_cast<LPCTSTR>(&InputFilter), &module);
-    if (frame)
+    if (!frame)
     {
-        input_filter = SetWindowsHookEx(WH_GETMESSAGE, InputFilter, module, GetWindowThreadProcessId(frame, nullptr));
+        return;
     }
+
+    // From a thread that lives as long as the process: Windows removes a hook when the thread that set it ends, and this
+    // one, the injection's, ends after StartHook. Set from such a thread, the hook dropped nothing (a probe, 2026-10-29).
+    std::thread([frame]{
+        HMODULE module = nullptr;
+        GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCTSTR>(&InputFilter), &module);
+        input_filter = SetWindowsHookEx(WH_GETMESSAGE, InputFilter, module, GetWindowThreadProcessId(frame, nullptr));
+        if (input_filter)
+        {
+            Sleep(INFINITE);
+        }
+    }).detach();
 }
 
 void StartHook() noexcept
