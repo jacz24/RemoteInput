@@ -36,6 +36,11 @@ private:
     std::unique_ptr<MemoryMapStream<ImageData>> memory_map;
     std::unique_ptr<InputOutput> io_controller;
     std::unique_ptr<RemoteVM> remote_vm;
+    // The holder (holder_key) that last turned off the mouse's or the keyboard's real input, -1 for none (#13).
+    std::atomic<std::int64_t> mouse_blocker{-1};
+    std::atomic<std::int64_t> keyboard_blocker{-1};
+
+    std::int64_t holder_key() const noexcept;
 
     bool init_maps() noexcept;
     bool init_signals() noexcept;
@@ -94,6 +99,7 @@ public:
     void set_keyboard_input_enabled(bool enabled) const noexcept;
     bool is_mouse_input_enabled() const noexcept;
     void set_mouse_input_enabled(bool enabled) const noexcept;
+    bool blocks_real_input(bool keyboard) const noexcept;
     void get_image_dimensions(std::int32_t* width, std::int32_t* height) const noexcept;
     void get_target_dimensions(std::int32_t* width, std::int32_t* height) const noexcept;
     ImageFormat get_image_format() const noexcept;

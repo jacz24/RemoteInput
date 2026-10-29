@@ -1519,10 +1519,54 @@ void InitialiseHooks() noexcept
     #endif
 }
 
+// The block of real input (Simba-Reflection #13): a message hook on AWT's toolkit thread, which owns each AWT window.
+// The OS's mouse and key input reaches AWT's peers as messages GetMessage takes from that thread's queue; RemoteInput's
+// own input posts Java events and never passes it. While ControlCenter::blocks_real_input holds, a mouse message
+// (WM_MOUSEMOVE to WM_MOUSEHWHEEL, hover and leave) or a key message (WM_KEYFIRST to WM_KEYLAST) becomes WM_NULL, so
+// AWT neither sees it nor translates a key into its character. The focus and window messages the OS sends pass: the
+// game's focus follows the real window's. No Java class and no pushed queue.
+static HHOOK input_filter = nullptr;
+
+static LRESULT CALLBACK InputFilter(int code, WPARAM wParam, LPARAM lParam) noexcept
+{
+    if (code == HC_ACTION)
+    {
+        extern std::unique_ptr<ControlCenter> control_center;
+        MSG* msg = reinterpret_cast<MSG*>(lParam);
+        bool mouse = (msg->message >= 0x0200 && msg->message <= 0x020E) || msg->message == 0x02A1 || msg->message == 0x02A3;
+        bool keyboard = msg->message >= WM_KEYFIRST && msg->message <= WM_KEYLAST;
+        if ((mouse || keyboard) && control_center && control_center->blocks_real_input(keyboard))
+        {
+            msg->message = WM_NULL;
+        }
+    }
+    return CallNextHookEx(input_filter, code, wParam, lParam);
+}
+
+static void InstallInputFilter() noexcept
+{
+    extern std::unique_ptr<ControlCenter> control_center;
+    JNIEnv* env = nullptr;
+    if (!control_center || JVM().getVM()->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_8) != JNI_OK)
+    {
+        return;
+    }
+
+    HWND frame = reinterpret_cast<HWND>(control_center->reflect_frame_native_handle(env));
+    HMODULE module = nullptr;
+    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                      reinterpret_cast<LPCTSTR>(&InputFilter), &module);
+    if (frame)
+    {
+        input_filter = SetWindowsHookEx(WH_GETMESSAGE, InputFilter, module, GetWindowThreadProcessId(frame, nullptr));
+    }
+}
+
 void StartHook() noexcept
 {
     Hook::setup();
     InitialiseHooks();
+    InstallInputFilter();
 
     //Signal that all hooks are finished initializing..
     ControlCenter::signal_sync(getpid());

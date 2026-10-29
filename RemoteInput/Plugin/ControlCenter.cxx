@@ -243,6 +243,10 @@ void ControlCenter::process_command() noexcept
         case EIOSCommand::SET_KEYBOARD_INPUT_ENABLED:
         {
             bool enabled = stream.read<bool>();
+            if (!enabled)
+            {
+                keyboard_blocker = holder_key();  // before the flag: the filter never sees an old holder's block
+            }
             io_controller->set_keyboard_input_enabled(enabled);
         }
             break;
@@ -257,6 +261,10 @@ void ControlCenter::process_command() noexcept
         case EIOSCommand::SET_MOUSE_INPUT_ENABLED:
         {
             bool enabled = stream.read<bool>();
+            if (!enabled)
+            {
+                mouse_blocker = holder_key();
+            }
             io_controller->set_mouse_input_enabled(enabled);
         }
             break;
@@ -1101,6 +1109,32 @@ std::int32_t ControlCenter::parent_process_id() const noexcept
 std::int32_t ControlCenter::parent_thread_id() const noexcept
 {
     return memory_map && memory_map->is_mapped() ? get_image_data()->parent_thread_id() : -1;
+}
+
+// The client's holder now: its process and thread, one key, -1 with none.
+std::int64_t ControlCenter::holder_key() const noexcept
+{
+    std::int32_t pid = parent_process_id();
+    std::int32_t tid = parent_thread_id();
+    return pid == -1 || tid == -1 ? -1 : (static_cast<std::int64_t>(pid) << 32) | static_cast<std::uint32_t>(tid);
+}
+
+// Whether the OS input filter drops the game's real keyboard (Keyboard) or mouse input (Simba-Reflection #13): while
+// that input is off, and only while the script that turned it off still holds the client and lives. A script that
+// ends, releases the client or is killed frees the input with no code of its own, and a new holder takes no old block.
+// shortcut: only Windows filters (Platform/NativeHooks_Windows.cxx); on macOS and Linux the flags still block nothing,
+// as before: add each OS's filter (the issue's leads) when a machine of it can test one.
+bool ControlCenter::blocks_real_input(bool keyboard) const noexcept
+{
+    InputOutput* io = io_controller.get();
+    if (!io || (keyboard ? io->is_keyboard_input_enabled() : io->is_mouse_input_enabled()))
+    {
+        return false;
+    }
+
+    std::int64_t holder = holder_key();
+    return holder != -1 && holder == (keyboard ? keyboard_blocker : mouse_blocker)
+           && IsProcessAlive(parent_process_id()) && IsThreadAlive(parent_thread_id());
 }
 
 std::int32_t ControlCenter::get_image_width() const noexcept

@@ -29,9 +29,11 @@ private:
     std::mutex mutex;
     std::unique_ptr<ThreadPool> input_thread;
 
-    // Only flags: RemoteInput pushes no event queue, so it does not block real input.
-    mutable bool keyboard_input_enabled;
-    mutable bool mouse_input_enabled;
+    // Whether real input reaches the game: off, the OS input filter drops it (Simba-Reflection #13,
+    // ControlCenter::blocks_real_input). RemoteInput pushes no event queue; its own input passes either way. The
+    // filter reads them on AWT's thread.
+    mutable std::atomic_bool keyboard_input_enabled;
+    mutable std::atomic_bool mouse_input_enabled;
 
     // MARK: - Input Variables
     std::atomic<std::int32_t> currently_held_key;
