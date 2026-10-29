@@ -1067,17 +1067,11 @@ bool InputOutput::is_keyboard_input_enabled() const noexcept
     return keyboard_input_enabled;
 }
 
+// No focus gain at a block (Simba-Reflection #13): real focus events pass the filter, so the game's focus follows the
+// real window's, and RemoteInput regains it itself before a press that finds it without.
 void InputOutput::set_keyboard_input_enabled(bool enabled) const noexcept
 {
     keyboard_input_enabled = enabled;
-
-    if (!enabled)
-    {
-        if (!this->has_focus())
-        {
-            this->gain_focus();
-        }
-    }
 }
 
 bool InputOutput::is_mouse_input_enabled() const noexcept
@@ -1088,14 +1082,6 @@ bool InputOutput::is_mouse_input_enabled() const noexcept
 void InputOutput::set_mouse_input_enabled(bool enabled) const noexcept
 {
     mouse_input_enabled = enabled;
-
-    if (!enabled)
-    {
-        if (!this->has_focus())
-        {
-            this->gain_focus();
-        }
-    }
 }
 
 std::int32_t InputOutput::get_keyboard_speed() const noexcept
