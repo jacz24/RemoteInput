@@ -304,6 +304,8 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 {
                     this->gain_focus(&receiver, true);
                 }
+                std::int32_t modifiers = GetActiveKeyModifiers();
+                jchar key_char = NativeKeyCodeToChar(code, modifiers);
 
                 //The new key's task is the newest before the key counts as held, both under the lock a repeat task holds from its
                 //check through its posts, so no older task reads this key as held while its own task is the newest. With the key
@@ -314,6 +316,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                     std::lock_guard<std::mutex> lock(this->mutex);
                     task = ++repeat_task;
                     currently_held_key = code;
+                    held_chars[code] = key_char;
                 }
                 held_keys.push_back(code);
 
@@ -321,10 +324,8 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 JNIEnv* env = receiver.getEnv();
                 std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
                 auto pressed_at = std::chrono::steady_clock::now();
-                std::int32_t modifiers = GetActiveKeyModifiers();
                 std::int32_t keycode = GetJavaKeyCode(code);
                 std::int32_t location = GetKeyLocation(code);
-                jchar key_char = NativeKeyCodeToChar(code, modifiers);
 
                 java::KeyEvent::Post(env,
                                      &receiver,
@@ -404,6 +405,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                             std::int32_t keycode = GetJavaKeyCode(code);
                             std::int32_t location = GetKeyLocation(code);
                             jchar key_char = NativeKeyCodeToChar(code, modifiers);
+                            held_chars[code] = key_char;
 
                             java::KeyEvent::Post(env,
                                                  &receiver,
@@ -498,13 +500,22 @@ void InputOutput::release_key(std::int32_t code) noexcept
             std::int32_t keycode = GetJavaKeyCode(code);
             std::int32_t location = GetKeyLocation(code);
 
+            //AWT's Windows peer saves the char of each WM_KEYDOWN and gives it to the WM_KEYUP (WindowsKeyToJavaChar's SAVE and
+            //LOAD), whatever Shift did in between (Simba-Reflection #141). X11's and Cocoa's take the modifiers at the release.
+            #if defined(_WIN32) || defined(_WIN64)
+            jchar key_char = held_chars[code];
+            #else
+            jchar key_char = NativeKeyCodeToChar(code, modifiers);
+            #endif
+            held_chars.erase(code);
+
             java::KeyEvent::Post(env,
                                  &receiver,
                                  java::KeyEvent::KeyCodes::KEY_RELEASED,
                                  when,
                                  modifiers,
                                  keycode,
-                                 NativeKeyCodeToChar(code, modifiers),
+                                 key_char,
                                  location);
         }
     }
