@@ -7,6 +7,7 @@ import java.awt.event.KeyEvent;
 import java.util.Scanner;
 
 // The client of probe_lost_events.py (Simba-Reflection #74, after #62's) and probe_key_repeat.py (#17): a hidden Frame
+// (shown with the argument show, for a real keyboard, #142)
 // with a Canvas, and a pushed EventQueue that prints each KeyEvent RemoteInput posts, with its arrival in µs
 // (nanoTime: currentTimeMillis steps by the 15.6 ms timer tick on Windows) and its when, the poster's clock in ms. The
 // queue sees each event before the focus manager, so a real mouse or keyboard at the PC cannot take one away.
@@ -68,9 +69,13 @@ public class KeyLog {
             public boolean hasFocus() { return true; }
         });
         frame.pack();
+        if (args.length > 0 && args[0].equals("show")) {   // probe_key_repeat.py --keyboard: the operator's own keys
+            frame.setSize(400, 200);
+            frame.setVisible(true);
+        }
         System.out.println("READY " + ProcessHandle.current().pid() + " " + System.getProperty("java.version"));
         System.out.flush();
-        Thread.sleep(60_000);
+        Thread.sleep(120_000);   // probe_key_repeat.py's phases take about 51 s
         System.exit(0);
     }
 }

@@ -117,26 +117,34 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
     #endif
 }
 
-//The keyboard's repeats come at the first tick of the OS's default timer at or after each deadline, whatever finer tick
-//another process asked for (#105): at 33 ms, 2 ticks between most and 3 between one in ten. The client's own timers take
-//its tick (a plain timer in the JVM woke 0-1.6 ms after its deadline), so a repeat rounds its deadline up to the default
-//tick itself, then waits on a high-resolution timer (0.03-0.76 ms late on the PC, never early). The client's sleep_until
-//woke early and spun to the deadline, or woke a tick late, which gave intervals of 18-30 ms.
-static void wait_for_tick(std::chrono::steady_clock::time_point deadline) noexcept
+//The keyboard's repeats come at the first point at or after each deadline of a grid, whatever finer tick another process
+//asked for (#105): at 33 ms, 2 steps between most and 3 between one in ten. The grid is not the OS's default tick of
+//15.625 ms (Simba-Reflection #142): the operator's 6 holds of 2 s or more at a global tick of 1 ms (2026-10-28, 2026-10-30)
+//fold best at 15.69-15.84 ms by the steady clock (QPC), a mean of 15.75, with a phase concentration of 0.57-0.96 there and
+//0.11-0.44 at 15.625, as the grid's phase moves. A step of GRID_MS and up to GRID_STEP_MS either way (a random walk of the
+//phase, sd 0.3 ms a step) gives those concentrations, the short intervals' spread (sd 0.45-0.60 ms, the keyboard's
+//0.49-0.64) and the least interval by arrival (29.7 ms with the timer's lateness, the keyboard's 29.71) in a model of the
+//holds (the probe's --model). Each hold's grid starts at a random phase. The client's own timers take its tick (a plain
+//timer in the JVM woke 0-1.6 ms after its deadline), so a repeat finds its grid point itself, then waits on a
+//high-resolution timer (0.03-0.76 ms late on the PC, never early). The client's sleep_until woke early and spun to the
+//deadline, or woke a tick late, which gave intervals of 18-30 ms.
+//shortcut: one period for every hold, where the keyboard's holds' best periods spread more (sd 0.059 ms over 6, the model's
+//0.023): draw a period for each hold if a detector reads the spread. And the grid at the default tick is not measured, as a
+//process held 1 ms with the browser closed (2026-10-30) and each Simba script with a layer asks for 1 ms: log it if a script
+//with no layer ever holds a key.
+static constexpr double GRID_MS = 15.75;
+static constexpr double GRID_STEP_MS = 0.52;
+
+static void wait_for_tick(std::chrono::steady_clock::time_point deadline, std::chrono::steady_clock::time_point& grid) noexcept
 {
     #if defined(_WIN32) || defined(_WIN64)
     using hundred_ns = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
-    static const hundred_ns tick = [] {
-        using QueryTimerResolution = LONG (NTAPI*)(PULONG, PULONG, PULONG);
-        auto query = reinterpret_cast<QueryTimerResolution>(GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtQueryTimerResolution"));
-        ULONG coarsest = 0, finest = 0, current = 0;
-        return hundred_ns((query && query(&coarsest, &finest, &current) == 0 && coarsest) ? coarsest : 156250);
-    }();
-
-    //shortcut: the grid's phase is the steady clock's and fixed, as the OS's has none to read; the keyboard's drifts (its
-    //repeats folded at 15.625 ms: a phase concentration of 0.15-0.42 over a hold, the plugin's about 0.99), so a detector
-    //that folds repeat times could tell them apart: model the drift if such a check shows up.
-    deadline += (tick - deadline.time_since_epoch() % tick) % tick;
+    while (grid < deadline)
+    {
+        grid += std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double, std::milli>(
+            GRID_MS + Random::instance()->generate_random_double(-GRID_STEP_MS, GRID_STEP_MS)));
+    }
+    deadline = grid;
     HANDLE timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, SYNCHRONIZE | TIMER_MODIFY_STATE);
     if (!timer)
     {
@@ -353,8 +361,10 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 {
                     //Repeats keep the OS timer's schedule from the press: the first after the delay, then one each interval, however long a post takes.
                     auto next = pressed_at + std::chrono::milliseconds(this->keyboard_repeat_delay);
-                    input_thread->add_task([&, task, next](std::atomic_bool &stopped) mutable {
-                        wait_for_tick(next);
+                    auto grid = pressed_at - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                        std::chrono::duration<double, std::milli>(Random::instance()->generate_random_double(0, GRID_MS)));
+                    input_thread->add_task([&, task, next, grid](std::atomic_bool &stopped) mutable {
+                        wait_for_tick(next, grid);
 
                         //A key released within the repeat delay never repeats, as on a keyboard: end before the attach.
                         if (currently_held_key == -1 || repeat_task != task)
@@ -378,7 +388,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                 break;
                             }
 
-                            wait_for_tick(next);
+                            wait_for_tick(next, grid);
 
                             //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
                             auto now = std::chrono::steady_clock::now();
