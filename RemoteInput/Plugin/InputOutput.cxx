@@ -123,13 +123,15 @@ static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t mo
 //fold best at 15.69-15.84 ms by the steady clock (QPC), a mean of 15.75, with a phase concentration of 0.57-0.96 there and
 //0.11-0.44 at 15.625, as the grid's phase moves. A step of GRID_MS and up to GRID_STEP_MS either way (a random walk of the
 //phase, sd 0.3 ms a step) gives those concentrations, the short intervals' spread (sd 0.45-0.60 ms, the keyboard's
-//0.49-0.64) and the least interval (29.7 ms, the keyboard's 29.71) in a model of the holds. Each hold's grid starts at a
-//random phase. The client's own timers take its tick (a plain timer in the JVM woke 0-1.6 ms after its deadline), so a
-//repeat finds its grid point itself, then waits on a high-resolution timer (0.03-0.76 ms late on the PC, never early). The
-//client's sleep_until woke early and spun to the deadline, or woke a tick late, which gave intervals of 18-30 ms.
+//0.49-0.64) and the least interval by arrival (29.7 ms with the timer's lateness, the keyboard's 29.71) in a model of the
+//holds (the probe's --model). Each hold's grid starts at a random phase. The client's own timers take its tick (a plain
+//timer in the JVM woke 0-1.6 ms after its deadline), so a repeat finds its grid point itself, then waits on a
+//high-resolution timer (0.03-0.76 ms late on the PC, never early). The client's sleep_until woke early and spun to the
+//deadline, or woke a tick late, which gave intervals of 18-30 ms.
 //shortcut: one period for every hold, where the keyboard's holds' best periods spread more (sd 0.059 ms over 6, the model's
-//0.023); and the grid at the default tick is not measured, as a process held 1 ms with the browser closed (2026-10-30) and
-//each Simba script with a layer asks for 1 ms. Draw a period for each hold if a detector reads the spread.
+//0.023): draw a period for each hold if a detector reads the spread. And the grid at the default tick is not measured, as a
+//process held 1 ms with the browser closed (2026-10-30) and each Simba script with a layer asks for 1 ms: log it if a script
+//with no layer ever holds a key.
 static constexpr double GRID_MS = 15.75;
 static constexpr double GRID_STEP_MS = 0.52;
 

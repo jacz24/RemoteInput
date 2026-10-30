@@ -12,7 +12,7 @@ plugin's exports:
             presses, at the OS's 500 ms.
   older     hold A, hold B, release A, release B, 1 s apart: the release of the older key leaves B's repeat alone.
   long      hold A 4 s, then D 4 s, 2 s apart, as the operator held them (#142): the fold below.
-  slow     the rollover again, with KeyLog holding the command thread the repeat interval after each key it posts, so
+  slow      the rollover again, with KeyLog holding the command thread the repeat interval after each key it posts, so
             B's press spans two of A's repeat times (#104). Where B counted as held before its task was the newest, A's
             task posted a repeat of B there, before B's delay; at real speed the window is two posts long.
 
@@ -24,7 +24,7 @@ log of 2026-10-23, since written over): 242 intervals of 30-33 ms (2 steps) and 
 over 5.3 s, so a deadline each whole 33 ms; again at a global tick of 1 ms (2026-10-28, 3 holds, Simba-Reflection's
 docs/live/2026-10-28-key-repeat-tick1ms.tsv): 175 of 30-33 ms and 19 of 45-48 ms. The checks: each repeat at most a grid
 step after its deadline and not before it, no interval under SHORT_MS, and the share of 40 ms or more within 2 SE of the
-keyboard's at its grid, or of the share another grid gives.
+keyboard's.
 
 Where the repeats fall on the grid (#142): each hold's repeats folded at a period, the phases' mean resultant length (1 when
 every repeat falls at one point), each hold its own phase and the holds weighted by their repeats. The long phase's two
@@ -36,6 +36,7 @@ prints their fold; --tick1 holds a 1 ms tick in this process for the log.
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
        python -I testbed/probe_key_repeat.py <java.exe> --keyboard <log.tsv> [--tick1]
+       python -I testbed/probe_key_repeat.py --model   (the fold gate and the intervals on a model of the plugin's grid)
 JVM_OPTS adds JVM options (-Xcheck:jni). Exit 0 only when every check passes.
 """
 import ctypes
@@ -59,11 +60,13 @@ GRID_MS, GRID_STEP_MS = 15.75, 0.52
 FIRST_REPEAT_SLACK_MS = 20
 # The operator's keyboard (#17's log of 2026-10-23): intervals of LONG_MS or more of all, at its grid. Its least, 29.71 ms
 # (2026-10-30, by µs), is two steps of a grid whose phase moves: none under SHORT_MS.
-KEYBOARD_LONG, KEYBOARD_INTERVALS, KEYBOARD_GRID_MS = 27, 269, GRID_MS
+KEYBOARD_LONG, KEYBOARD_INTERVALS = 27, 269
 LONG_MS, SHORT_MS = 40, 29.5
 # The operator's keyboard at a global tick of 1 ms, its 6 holds of 2 s or more (2026-10-28, 2026-10-30), each folded alone
 # (#142): at most 0.44 at 15.625 ms; at its best period, 15.69-15.84 ms, 0.57-0.96, and 0.97 for a hold of 0.6 s. A best
-# period over a hold of 3.5 s is known to about 0.035 ms (the fold's peak is 0.07 ms wide): its range widens by 0.04.
+# period over a hold of 3.5 s is known to about 0.035 ms (the fold's peak is 0.07 ms wide): its range widens by 0.04. No
+# floor at 15.625 ms: a hold that spans a whole number of the two periods' beats (about 2 s) folds near 0 there.
+DEFAULT_TICK_MS = 15.625   # the OS's default tick: #105's grid, and #142's first fold
 KEYBOARD_AT_DEFAULT_MOST, KEYBOARD_BEST_MS, KEYBOARD_AT_BEST = 0.44, (15.65, 15.88), (0.57, 0.97)
 # Each arrival carries its post's lag, about 0.3 ms either way (8217919).
 LAG_MS = 1
@@ -114,16 +117,16 @@ def best_period(holds_ms, lo_ms=15.0, hi_ms=17.0, step_ms=0.001):
 
 def fold_line(name, holds_ms):
     best = best_period(holds_ms)
-    return (f"  {name}: {sum(map(len, holds_ms))} repeats, {concentration(holds_ms, 15.625):.2f} at 15.625 ms, "
+    return (f"  {name}: {sum(map(len, holds_ms))} repeats, {concentration(holds_ms, DEFAULT_TICK_MS):.2f} at {DEFAULT_TICK_MS} ms, "
             f"{concentration(holds_ms, best):.2f} at the best, {best:.3f} ms")
 
 
 def check_fold(holds_ms):
     """The faults of the holds' fold against the keyboard's long holds (#142)."""
-    at_default, best = concentration(holds_ms, 15.625), best_period(holds_ms)
+    at_default, best = concentration(holds_ms, DEFAULT_TICK_MS), best_period(holds_ms)
     at_best, faults = concentration(holds_ms, best), []
     if at_default > KEYBOARD_AT_DEFAULT_MOST:
-        faults.append(f"{at_default:.2f} at 15.625 ms, over the keyboard's {KEYBOARD_AT_DEFAULT_MOST}")
+        faults.append(f"{at_default:.2f} at {DEFAULT_TICK_MS} ms, over the keyboard's {KEYBOARD_AT_DEFAULT_MOST}")
     if not KEYBOARD_BEST_MS[0] <= best <= KEYBOARD_BEST_MS[1]:
         faults.append(f"the best period {best:.3f} ms, outside the keyboard's {KEYBOARD_BEST_MS[0]}-{KEYBOARD_BEST_MS[1]}")
     if not KEYBOARD_AT_BEST[0] <= at_best <= KEYBOARD_AT_BEST[1]:
@@ -131,18 +134,17 @@ def check_fold(holds_ms):
     return faults
 
 
-def check_shape(report, tick_ms, speed_ms):
-    """The faults of the repeats' shape against the keyboard's: a post at the first tick at or after each deadline, so
-    each interval is the ticks the setting spans or one more, the longer in frac(setting / tick) of them."""
+def check_shape(report, grid_ms, speed_ms):
+    """The faults of the repeats' shape against the keyboard's: a post at the first grid point at or after each deadline,
+    so each interval is the steps the setting spans or one more, the longer as often as the keyboard's."""
     faults = []
     lates = [late for _, _, of_hold in report for late in of_hold]
-    step_ms = tick_ms + GRID_STEP_MS
+    step_ms = grid_ms + GRID_STEP_MS
     off = [late for late in lates if not -LAG_MS <= late <= step_ms + LAG_MS]
     if off:
         faults.append(f"{len(off)} of {len(lates)} repeats outside 0-{step_ms:g} ms after their deadlines "
                       f"({min(off):.1f} to {max(off):.1f})")
-    shorter = speed_ms // tick_ms * tick_ms
-    short_ms = min(SHORT_MS, shorter - LAG_MS)
+    short_ms = min(SHORT_MS, speed_ms // grid_ms * grid_ms - LAG_MS)
     gap_pairs = [(before, gap) for _, gaps, _ in report for before, gap in zip([None] + gaps, gaps)]
     short = [(before, gap) for before, gap in gap_pairs if gap < short_ms]
     if short:
@@ -150,18 +152,14 @@ def check_shape(report, tick_ms, speed_ms):
         faults.append(f"{len(short)} interval(s) under {short_ms:g} ms ({min(gap for _, gap in short):.1f} the least), "
                       f"{after} of them after one of {LONG_MS} ms or more")
     n, n_long = len(gap_pairs), sum(gap >= LONG_MS for _, gap in gap_pairs)
-    longer = (speed_ms / tick_ms) % 1 if shorter + tick_ms >= LONG_MS else 0
     if not n:
         faults.append("no intervals")
-    elif abs(tick_ms - KEYBOARD_GRID_MS) < 0.1:
+    else:
         p = (n_long + KEYBOARD_LONG) / (n + KEYBOARD_INTERVALS)
         se = (p * (1 - p) * (1 / n + 1 / KEYBOARD_INTERVALS)) ** 0.5
         if abs(n_long / n - KEYBOARD_LONG / KEYBOARD_INTERVALS) > 2 * se:
             faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, outside 2 SE ({2 * se:.3f}) of the "
                           f"keyboard's {KEYBOARD_LONG} of {KEYBOARD_INTERVALS}")
-    elif abs(n_long / n - longer) > 2 * (longer * (1 - longer) / n) ** 0.5:
-        faults.append(f"{n_long} of {n} intervals {LONG_MS} ms or more, where a tick of {tick_ms:g} ms gives "
-                      f"{longer:.3f} of them")
     return faults
 
 
@@ -326,7 +324,7 @@ def main(java, dll):
                    "; ".join(shape)))
     long_ms = [[us / 1000 for us in reps] for _, _, reps in repeat_holds(long)]
     fold = check_fold(long_ms) if len(long_ms) == 2 else [f"{len(long_ms)} long holds, expected 2"]
-    checks.append(("long: the keyboard's fold, at 15.625 ms and at the best period", not fold, "; ".join(fold)))
+    checks.append((f"long: the keyboard's fold, at {DEFAULT_TICK_MS} ms and at the best period", not fold, "; ".join(fold)))
 
     print(f"java {version}, repeat delay {delay} ms, interval {speed} ms, the OS's default tick {default_tick:g} ms "
           f"(now {now_tick:g} ms)")
@@ -349,6 +347,28 @@ def main(java, dll):
     if not alive:
         print("FAIL: the JVM died")
     return 0 if alive and all(ok for _, ok, _ in checks) else 1
+
+
+def model_hold(n, rng, delay_ms=500, speed_ms=33):
+    """n repeats of a hold on the plugin's grid, by arrival in ms: from a random phase, each step GRID_MS and up to
+    GRID_STEP_MS either way, each repeat at the first grid point at or after its deadline and 0.03-0.76 ms late."""
+    grid, deadline, out = rng.uniform(0, GRID_MS), delay_ms, []
+    while len(out) < n:
+        while grid < deadline:
+            grid += GRID_MS + rng.uniform(-GRID_STEP_MS, GRID_STEP_MS)
+        out.append(grid + rng.uniform(0.03, 0.76))
+        deadline += speed_ms
+    return out
+
+
+def model(runs=400):
+    """The long phase's fold gate and the intervals on the model of the plugin's grid, runs of two holds of 106 repeats."""
+    rng = random.Random(142)
+    pairs = [[model_hold(106, rng), model_hold(106, rng)] for _ in range(runs)]
+    gaps = [b - a for pair in pairs for hold in pair for a, b in zip(hold, hold[1:])]
+    print(f"the model: {sum(bool(check_fold(pair)) for pair in pairs)} of {runs} runs fail the fold gate; intervals "
+          f"{min(gaps):.2f}-{max(gaps):.2f} ms, {sum(g >= LONG_MS for g in gaps) / len(gaps):.3f} of {LONG_MS} ms or more")
+    return 0
 
 
 def keyboard(java, log_path, tick1):
@@ -377,5 +397,7 @@ def keyboard(java, log_path, tick1):
 
 
 if __name__ == "__main__":
+    if sys.argv[1] == "--model":
+        sys.exit(model())
     sys.exit(keyboard(sys.argv[1], sys.argv[3], "--tick1" in sys.argv) if sys.argv[2] == "--keyboard"
              else main(sys.argv[1], sys.argv[2]))

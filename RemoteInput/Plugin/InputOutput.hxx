@@ -40,7 +40,7 @@ private:
     std::atomic<std::int32_t> currently_held_key;
     std::atomic<std::uint32_t> repeat_task; // The newest key-repeat task. An older task stops when it sees a newer one.
     std::list<std::int32_t> held_keys;
-    std::unordered_map<std::int32_t, jchar> held_chars; // Each held text key's char at its last press or repeat, under mutex: its release posts it.
+    std::unordered_map<std::int32_t, jchar> held_chars; // Each held key's char at its last press or repeat, a control key's aside, under mutex: its release posts it.
     std::int32_t x;
     std::int32_t y;
     std::size_t w;

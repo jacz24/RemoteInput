@@ -75,7 +75,7 @@ public class KeyLog {
         }
         System.out.println("READY " + ProcessHandle.current().pid() + " " + System.getProperty("java.version"));
         System.out.flush();
-        Thread.sleep(120_000);
+        Thread.sleep(120_000);   // probe_key_repeat.py's phases take about 51 s
         System.exit(0);
     }
 }
