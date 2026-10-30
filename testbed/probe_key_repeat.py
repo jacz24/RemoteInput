@@ -26,11 +26,19 @@ repeat at most a default tick after its deadline and not before it, no interval 
 interval a coarser tick gives), and the share of 40 ms or more within 2 SE of the keyboard's at its tick, or of the share
 another default tick gives.
 
+Where the repeats fall on the grid (#142): each hold's repeats folded at a period, the phases' mean resultant length (1 when
+every repeat falls at one point), each hold its own phase and the holds weighted by their repeats. The operator's keyboard
+at a global tick of 1 ms (2026-10-28): 0.23 at 15.625 ms and 0.85 at its best, 15.748 ms; the plugin's grid is 15.625 ms.
+--keyboard logs the operator's own holds in KeyLog's shown window, each event's arrival in µs and the OS's tick at it, and
+prints their fold; --tick1 holds a 1 ms tick in this process for the log.
+
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
+       python -I testbed/probe_key_repeat.py <java.exe> --keyboard <log.tsv> [--tick1]
 JVM_OPTS adds JVM options (-Xcheck:jni). Exit 0 only when every check passes.
 """
 import ctypes
+import math
 import os
 import random
 import statistics
@@ -81,6 +89,25 @@ def repeat_report(events, delay_ms, speed_ms):
     return [(key, [(b - a) / 1000 for a, b in zip(reps, reps[1:])],
              [(us - press) / 1000 - delay_ms - k * speed_ms for k, us in enumerate(reps)])
             for key, press, reps in repeat_holds(events)]
+
+
+def concentration(holds_ms, period_ms):
+    """The repeats' phases at period_ms: each hold's mean resultant length, weighted by its repeats (#142)."""
+    resultant = lambda t: math.hypot(sum(math.cos(2 * math.pi * x / period_ms) for x in t),
+                                     sum(math.sin(2 * math.pi * x / period_ms) for x in t))
+    return sum(resultant(t) for t in holds_ms) / sum(map(len, holds_ms))
+
+
+def best_period(holds_ms, lo_ms=15.0, hi_ms=17.0, step_ms=0.001):
+    """The period in lo_ms-hi_ms at which the repeats concentrate most: #105's and #142's scan."""
+    return max((lo_ms + k * step_ms for k in range(round((hi_ms - lo_ms) / step_ms) + 1)),
+               key=lambda p: concentration(holds_ms, p))
+
+
+def fold_line(name, holds_ms):
+    best = best_period(holds_ms)
+    return (f"  {name}: {sum(map(len, holds_ms))} repeats, {concentration(holds_ms, 15.625):.2f} at 15.625 ms, "
+            f"{concentration(holds_ms, best):.2f} at the best, {best:.3f} ms")
 
 
 def check_shape(report, tick_ms, speed_ms):
@@ -293,5 +320,31 @@ def main(java, dll):
     return 0 if alive and all(ok for _, ok, _ in checks) else 1
 
 
+def keyboard(java, log_path, tick1):
+    """The operator's holds in KeyLog's shown window, logged to log_path with the OS's tick at each event, and their fold."""
+    if tick1:
+        ctypes.WinDLL("winmm").timeBeginPeriod(1)
+    here = os.path.dirname(os.path.abspath(__file__))
+    jvm = subprocess.Popen([java, "-cp", os.path.join(here, "out"), "KeyLog", "show"], stdout=subprocess.PIPE, text=True)
+    events = []
+    with open(log_path, "w") as log:
+        log.write("us\tid\tkey_code\tkey_char\tlocation\ttick_ms\n")
+        for line in jvm.stdout:
+            f = line.split()
+            if f[:1] == ["READY"]:
+                print(f"java {f[2]}, the OS's tick now {os_ticks_ms()[1]:g} ms: click the window, then hold a letter "
+                      f"4 s, twice or more, 2 s apart; it closes in 60 s")
+            elif f[:1] == ["KEY"]:
+                log.write("\t".join([f[5], f[1], f[2], f[3], f[4], f"{os_ticks_ms()[1]:g}"]) + "\n")
+                events.append((int(f[1]), int(f[2]), int(f[5]), int(f[6])))
+    holds = [(code, [us / 1000 for us in reps]) for code, _, reps in repeat_holds(events) if len(reps) >= 2]
+    for code, reps in holds:
+        print(fold_line(chr(code), [reps]))
+    if holds:
+        print(fold_line("all", [reps for _, reps in holds]))
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1], sys.argv[2]))
+    sys.exit(keyboard(sys.argv[1], sys.argv[3], "--tick1" in sys.argv) if sys.argv[2] == "--keyboard"
+             else main(sys.argv[1], sys.argv[2]))
