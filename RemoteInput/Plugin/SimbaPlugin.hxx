@@ -36,6 +36,9 @@ static const char* PascalExports[] =
     "Pascal_Reflect_Array_SingleIndex", "Function RIGetArraySingleElement(eios: Pointer; arr: Pointer; elementType: ReflectionType; index: SizeUInt): Pointer; native;",
     "Pascal_Reflect_Array_Index", "Function RIGetArrayElement(eios: Pointer; arr: Pointer; elementType: ReflectionType; index, length: SizeUInt): Pointer; native;",
 
+    //Every node of the circular lists a field holds, its one sentinel or each bucket's: an array of references
+    "Pascal_Reflect_Nodes", "Function RIGetNodes(eios: Pointer; instance: Pointer; constref heads, next: ^const RIField): Pointer; native;",
+
     //Array 2-D
     "Pascal_Reflect_Array_SingleIndex2D", "Function RIGetArraySingleElement(eios: Pointer; arr: Pointer; elementType: ReflectionType; x, y: Int32): Pointer; overload; native;",
     "Pascal_Reflect_Array_Index2D", "Function RIGetArrayElement(eios: Pointer; arr: Pointer; elementType: ReflectionType; length: SizeUInt; x, y: Int32): Pointer; overload; native;",
@@ -339,6 +342,8 @@ EXPORT void Pascal_Reflect_Array_Index(void** Params, void** Result) noexcept;
 EXPORT void Pascal_Reflect_Array_Index2D(void** Params, void** Result) noexcept;
 EXPORT void Pascal_Reflect_Array_Index3D(void** Params, void** Result) noexcept;
 EXPORT void Pascal_Reflect_Array_Index4D(void** Params, void** Result) noexcept;
+
+EXPORT void Pascal_Reflect_Nodes(void** Params, void** Result) noexcept;
 
 EXPORT void Pascal_Reflect_Class_Name(void** Params, void** Result) noexcept;
 EXPORT void Pascal_Reflect_Class_Type(void** Params, void** Result) noexcept;

@@ -665,6 +665,17 @@ void ControlCenter::process_command() noexcept
         }
             break;
 
+        case EIOSCommand::REFLECT_NODES:
+        {
+            ReflectionHook heads;
+            ReflectionHook next;
+            stream >> heads >> next;
+
+            //65,536 nodes: more than the client's indexes number, and their 512 KB fit the data's 800 KB.
+            stream.write(main_reflector->getNodes(heads.object, heads, next, 65'536));
+        }
+            break;
+
         case EIOSCommand::REFLECT_CLASS_NAME:
         {
             jobject object = stream.read<jobject>();
@@ -1926,6 +1937,20 @@ ImageData* ControlCenter::reflect_array_indices(const jarray array, ReflectionTy
         stream.write(type);
         stream.write(length);
         stream.write(indices, length * sizeof(std::int32_t));
+    });
+
+    if (result)
+    {
+        return get_image_data();
+    }
+    return nullptr;
+}
+
+ImageData* ControlCenter::reflect_nodes(const ReflectionHook &heads, const ReflectionHook &next) const noexcept
+{
+    bool result = send_command([&](Stream &stream, ImageData* image_data) {
+        image_data->set_command(EIOSCommand::REFLECT_NODES);
+        stream << heads << next;
     });
 
     if (result)

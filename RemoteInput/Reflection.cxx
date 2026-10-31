@@ -381,3 +381,63 @@ jlong Reflection::getNativeHandle(JNIEnv* env, jobject component) const noexcept
     return 0;
     #endif
 }
+//The nodes of each circular list a field of object holds: its one sentinel (an object field: a Deque, the client's own
+//linked list), or each bucket's (an array field: an IndexedObjectSet, a HashTable), bucket by bucket. A list runs from
+//its sentinel by next to the sentinel again or a null next (a node the client unlinks during the walk), and the walk
+//stops at limit nodes in all. A new global reference for each node alone: the sentinels, the table and each list's end
+//stay local, as each global reference made costs the client's JVM memory and GC time (Simba-Reflection #182, #184).
+std::vector<jobject> Reflection::getNodes(jobject object, const ReflectionHook &heads, const ReflectionHook &next, std::size_t limit) noexcept
+{
+    auto field_of = [this](const ReflectionHook &hook) -> jfieldID {
+        jclass cls = LoadClass(hook.cls);
+        jfieldID field = cls ? GetFieldID(cls, hook.field, hook.desc, false) : nullptr;
+        if (!field)
+        {
+            fprintf(stderr, "No Such Instance Field: %s.%s -> %s\n", hook.cls.c_str(), hook.field.c_str(), hook.desc.c_str());
+            env->ExceptionClear();
+        }
+        return field;
+    };
+
+    std::vector<jobject> nodes;
+    jfieldID heads_field = object ? field_of(heads) : nullptr;
+    jfieldID next_field = heads_field ? field_of(next) : nullptr;
+    if (!next_field)
+    {
+        return nodes;
+    }
+
+    auto walk = [&](jobject sentinel) {
+        jobject node = env->GetObjectField(sentinel, next_field);
+        while (node && nodes.size() < limit && !env->IsSameObject(node, sentinel))
+        {
+            nodes.push_back(env->NewGlobalRef(node));
+            env->DeleteLocalRef(std::exchange(node, env->GetObjectField(node, next_field)));
+        }
+        env->DeleteLocalRef(node);
+    };
+
+    auto held = make_safe_local<jobject>(env, env->GetObjectField(object, heads_field));
+    if (!held)
+    {
+        return nodes;
+    }
+
+    if (heads.desc.starts_with('['))
+    {
+        jobjectArray buckets = static_cast<jobjectArray>(held.get());
+        for (jsize i = 0, n = env->GetArrayLength(buckets); i < n && nodes.size() < limit; ++i)
+        {
+            auto sentinel = make_safe_local<jobject>(env, env->GetObjectArrayElement(buckets, i));
+            if (sentinel)
+            {
+                walk(sentinel.get());
+            }
+        }
+    }
+    else
+    {
+        walk(held.get());
+    }
+    return nodes;
+}

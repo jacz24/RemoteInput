@@ -5,6 +5,7 @@
 #include <memory>
 #include <functional>
 #include <unordered_map>
+#include <vector>
 #include <cstdint>
 #include <string_view>
 #include "JNI_Common.hxx"
@@ -104,6 +105,8 @@ public:
     JNIEnv* getEnv() const noexcept;
 
     jlong getNativeHandle(JNIEnv* env, jobject component) const noexcept;
+
+    std::vector<jobject> getNodes(jobject object, const ReflectionHook &heads, const ReflectionHook &next, std::size_t limit) noexcept;
 
     template<typename T>
     typename std::enable_if<std::is_same<std::string, typename std::remove_cv<T>::type>::value, T>::type

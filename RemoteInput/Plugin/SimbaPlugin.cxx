@@ -655,6 +655,18 @@ void Pascal_Reflect_Array_Index(void** Params, void** Result) noexcept
     PascalWrite(Result, read_array(image_data->data_stream(), type));
 }
 
+void Pascal_Reflect_Nodes(void** Params, void** Result) noexcept
+{
+    EIOS* eios = PascalRead<EIOS*>(Params[0]);
+    jobject object = PascalRead<jobject>(Params[1]);
+    PascalField* heads = PascalRead<PascalField*>(Params[2]);
+    PascalField* next = PascalRead<PascalField*>(Params[3]);
+
+    ImageData* image_data = eios ? eios->control_center->reflect_nodes(ReflectionHook{object, heads->cls, heads->field, heads->desc},
+                                                                       ReflectionHook{nullptr, next->cls, next->field, next->desc}) : nullptr;
+    PascalWrite(Result, image_data ? read_array(image_data->data_stream(), ReflectionType::OBJECT) : nullptr);
+}
+
 void Pascal_Reflect_Array_Index2D(void** Params, void** Result) noexcept
 {
     EIOS* eios = PascalRead<EIOS*>(Params[0]);

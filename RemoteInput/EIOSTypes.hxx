@@ -81,7 +81,10 @@ enum class EIOSCommand: std::uint32_t
 
     REMOTE_VM_INSTRUCTION,
 
-    SET_FOCUS_REACTION
+    SET_FOCUS_REACTION,
+
+    //Last, so each older command keeps its number.
+    REFLECT_NODES
 };
 
 typedef struct EIOSData

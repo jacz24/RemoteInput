@@ -152,6 +152,7 @@ public:
 
 
     ImageData* reflect_array_indices(const jarray array, ReflectionType type, std::int32_t* indices, std::size_t length) const noexcept;
+    ImageData* reflect_nodes(const ReflectionHook &heads, const ReflectionHook &next) const noexcept;
 
     std::string reflect_class_name(const jobject object) const noexcept;
     std::string reflect_class_type(const jobject object) const noexcept;
