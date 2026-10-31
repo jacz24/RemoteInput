@@ -4,8 +4,8 @@ plugin's exports:
 
   presses   10 presses of Escape, each 20-125 ms, 400 ms apart: none outlasts the repeat delay, so none repeats or
             attaches a thread (P14).
-  holds     10 holds of the up arrow, each the repeat delay and 300 ms, 700 ms apart: each repeats and attaches one
-            thread (the control of the thread count), and no key event comes in the 200 ms after a release (P14).
+  holds     10 holds of the up arrow, each the repeat delay and 300 ms, 700 ms apart: each repeats, and no hold makes a thread (the pool
+            thread attaches once, named: #197; it was one thread a hold), and no key event comes in the 200 ms after a release (P14).
   rollover  hold A, hold B, release B, release A, 1 s apart. The operator's keyboard on Windows 11 (#17, 2026-10-23):
             B's press ends A's repeat; B repeats after its own delay; B's release ends the repeat while A is still down,
             and A posts nothing more until its release. A's and B's first repeats came 511 and 507 ms after their
@@ -308,8 +308,8 @@ def main(java, dll):
     checks = [
         ("presses: one press each", pressed_per_hold(presses) == [1] * 10, f"pressed per press {pressed_per_hold(presses)}"),
         ("presses: no thread attached", presses_threads == 0, f"{presses_threads} thread(s)"),
-        ("holds: each repeats, one thread each (control)",
-         held_threads == 10 and len(pressed_per_hold(held)) == 10 and min(pressed_per_hold(held)) >= 2,
+        ("holds: each repeats, and no hold moves the counter of unnamed threads (#197: the pool thread attaches once, named)",
+         held_threads == 0 and len(pressed_per_hold(held)) == 10 and min(pressed_per_hold(held)) >= 2,
          f"{held_threads} thread(s), pressed per hold {pressed_per_hold(held)}"),
         ("presses and holds: no key event in the 200 ms after a release", not after_release(presses + held),
          f"{after_release(presses + held)}"),

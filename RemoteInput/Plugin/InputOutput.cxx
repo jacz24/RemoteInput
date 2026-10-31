@@ -373,10 +373,11 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                         }
 
                         JNIEnv* env = nullptr;
-                        this->vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr);
+                        //The pool thread attaches once and detaches when it ends: a new java.lang.Thread for each hold would move the JVM's counter of unnamed threads (#197).
+                        JVM::AttachWorker(this->vm, &env);
 
-                        //Declared before the wrappers, so it detaches after their destructors release their references.
-                        struct Detach { JavaVM* vm; ~Detach() { vm->DetachCurrentThread(); } } detach{this->vm};
+                        //The thread stays attached after the task, so its local references go with a frame; declared before the wrappers, so it pops after their destructors.
+                        struct Frame { JNIEnv* env; explicit Frame(JNIEnv* e) : env(e) { env->PushLocalFrame(128); } ~Frame() { env->PopLocalFrame(nullptr); } } frame{env};
 
                         java::Applet applet{env, this->applet, false};
                         java::Component receiver = applet.getComponent(0);
@@ -1704,7 +1705,7 @@ std::int32_t InputOutput::SimbaMouseButtonToJava(std::int32_t button) const noex
 void InputOutput::get_applet_dimensions(std::int32_t &x, std::int32_t &y, std::size_t &width, std::size_t &height) const noexcept
 {
     JNIEnv* env = nullptr;
-    if (this->vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr) == JNI_OK)
+    if (JVM::AttachDaemon(this->vm, &env) == JNI_OK)
     {
         java::Applet receiver{env, this->applet, false};
         //Component receiver = applet.getComponent(0);
@@ -1724,7 +1725,7 @@ void InputOutput::get_applet_dimensions(std::int32_t &x, std::int32_t &y, std::s
 void InputOutput::get_canvas_dimensions(std::int32_t &x, std::int32_t &y, std::size_t &width, std::size_t &height) const noexcept
 {
     JNIEnv* env = nullptr;
-    if (this->vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr) == JNI_OK)
+    if (JVM::AttachDaemon(this->vm, &env) == JNI_OK)
     {
         java::Applet receiver{env, this->applet, false};
         java::Component canvas = receiver.getComponent(0);
