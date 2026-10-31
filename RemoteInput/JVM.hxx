@@ -44,6 +44,13 @@ public:
     jint AttachCurrentThread(JNIEnv** env) noexcept;
     jint AttachCurrentThreadAsDaemon(JNIEnv** env) noexcept;
     jint DetachCurrentThread() noexcept;
+
+    //Daemon attach with a name, for a thread that has no JVM env yet (the raw JavaVM of a plugin object).
+    static jint AttachDaemon(JavaVM* vm, JNIEnv** env) noexcept;
+
+    //AttachDaemon once for the calling thread: it detaches when the thread ends, so a worker that calls this for each task
+    //makes one java.lang.Thread, not one for each task (#197).
+    static jint AttachWorker(JavaVM* vm, JNIEnv** env) noexcept;
 };
 
 #endif // JVM_HXX_INCLUDED

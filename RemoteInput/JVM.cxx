@@ -1,5 +1,26 @@
 #include "JVM.hxx"
 
+#include <random>
+
+namespace
+{
+    //A name in the style of the client's own pool threads ("pool-3-thread-1"), with a pool number the client has not
+    //reached: the JVM would otherwise name the thread "Thread-N" from Java's counter of unnamed threads (#197).
+    //shortcut: a pool of that number can appear later in the client; the names need not be unique.
+    std::string ThreadName() noexcept
+    {
+        static thread_local std::mt19937 engine{std::random_device{}()};
+        return "pool-" + std::to_string(std::uniform_int_distribution<int>(5, 40)(engine)) + "-thread-1";
+    }
+
+    //Detaches a thread that AttachWorker attached, when the thread ends.
+    struct WorkerDetach
+    {
+        JavaVM* vm = nullptr;
+        ~WorkerDetach() { if (vm) { vm->DetachCurrentThread(); } }
+    };
+}
+
 JVM::JVM() noexcept : vm(nullptr), createdVM(false), loadedJNI(false), module(nullptr)
 {
     #if defined(_WIN32) || defined(_WIN64)
@@ -193,7 +214,30 @@ jint JVM::AttachCurrentThreadAsDaemon(JNIEnv** env) noexcept
     {
         return JNI_ERR;
     }
-    return this->vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(env), nullptr);
+    return AttachDaemon(this->vm, env);
+}
+
+jint JVM::AttachDaemon(JavaVM* vm, JNIEnv** env) noexcept
+{
+    std::string name = ThreadName();
+    JavaVMAttachArgs args{JNI_VERSION_1_6, name.data(), nullptr};
+    return vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(env), &args);
+}
+
+jint JVM::AttachWorker(JavaVM* vm, JNIEnv** env) noexcept
+{
+    if (vm->GetEnv(reinterpret_cast<void**>(env), JNI_VERSION_1_6) == JNI_OK)
+    {
+        return JNI_OK;
+    }
+
+    static thread_local WorkerDetach worker;
+    jint result = AttachDaemon(vm, env);
+    if (result == JNI_OK)
+    {
+        worker.vm = vm;
+    }
+    return result;
 }
 
 jint JVM::DetachCurrentThread() noexcept
