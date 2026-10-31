@@ -1,9 +1,12 @@
 #include "Platform.hxx"
+#include "Plugin/ControlCenter.hxx"
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <string>
 #include <chrono>
 #include <cerrno>
+#include <random>
+#include <vector>
 #include "Thirdparty/Hook.hxx"
 #if defined(CUSTOM_INJECTOR)
 #include "Injection/Injector.hxx"
@@ -325,54 +328,119 @@ char* realpath(const char* path, char* resolved_path)
     return resolved_path;
 }
 
+// A copy of this module's file under a new random name in the temp folder, so the module in the
+// client has a different name each injection (a check by the name of the plugin's own file, a
+// SHA1 for Simba, finds nothing). The name is digits alone: it copies no other library's.
+// shortcut: a copy of a client that exited is deleted by the next injection of this process,
+// not by a later process, so a Simba restart leaves its last copies; add a sweep if they pile up.
+static std::string CopySelf(const std::string& file) noexcept
+{
+    static std::vector<std::pair<std::int32_t, std::string>> copies;
+    static std::mt19937_64 random{std::random_device{}()};
+
+    for (auto it = copies.begin(); it != copies.end();)
+    {
+        if (!IsProcessAlive(it->first) && (DeleteFileA(it->second.c_str()) || GetLastError() == ERROR_FILE_NOT_FOUND))
+        {
+            it = copies.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    char temp[MAX_PATH] = {0};
+    DWORD length = GetTempPathA(MAX_PATH, temp);
+    if (length == 0 || length >= MAX_PATH)
+    {
+        return {};
+    }
+
+    std::string copy = std::string(temp, length) + std::to_string(random() % 90000000000ULL + 10000000000ULL) + ".dll";
+    if (!CopyFileA(file.c_str(), copy.c_str(), TRUE))
+    {
+        return {};
+    }
+    return copy;
+}
+
 bool InjectSelf(std::int32_t pid) noexcept
 {
     if (IsProcessAlive(pid))
     {
-        std::string file;
-        file.resize(MAX_PATH);
         extern HMODULE module;
 
-        if (GetModuleFileName(module, &file[0], MAX_PATH) == 0)
-        {
-            return false;
-        }
-
-        #if defined(CUSTOM_INJECTOR)
-        return Injector::Inject(file, pid, nullptr);
-        #else
+        #if !defined(CUSTOM_INJECTOR)
         extern std::vector<std::unique_ptr<Injector>> injectors;
 
         for (auto& injector : injectors)
         {
+            if (injector && injector->get_pid() == pid && injector->is_injected())
+            {
+                return true;
+            }
+        }
+        #endif
+
+        std::string file;
+        file.resize(MAX_PATH);
+        DWORD length = GetModuleFileName(module, &file[0], MAX_PATH);
+        if (length == 0 || length >= MAX_PATH)
+        {
+            return false;
+        }
+        file.resize(length);
+
+        std::string copy = CopySelf(file);
+        if (copy.empty())
+        {
+            return false;
+        }
+
+        // The pid is recorded with the copy so a later injection deletes it once the client is gone.
+        bool result = false;
+
+        #if defined(CUSTOM_INJECTOR)
+        result = Injector::Inject(copy, pid, nullptr);
+        #else
+        for (auto& injector : injectors)
+        {
             if (injector && injector->get_pid() == pid)
             {
-                if (injector->is_injected())
-                {
-                    return true;
-                }
-
-                return injector->Inject(file);;
+                result = injector->Inject(copy);
+                break;
             }
         }
 
-        std::unique_ptr<Injector> injector = std::make_unique<Injector>(pid);
-        if (injector)
+        if (!result)
         {
-            bool result = injector->Inject(file);
-            injectors.push_back(std::move(injector));
-            return true;
+            std::unique_ptr<Injector> injector = std::make_unique<Injector>(pid);
+            if (injector)
+            {
+                injector->Inject(copy);
+                injectors.push_back(std::move(injector));
+                result = true;
+            }
         }
         #endif
+
+        if (!result)
+        {
+            DeleteFileA(copy.c_str());
+        }
+        return result;
     }
     return false;
 }
 
 std::int32_t InjectProcess(std::int32_t pid) noexcept
 {
+    // The module in the client has a random name, so a client already injected is the one with a
+    // controller (its shared memory); the module's base is kept as a second check.
     extern HMODULE module;
     MODULEENTRY32 info = GetModuleInfo(pid, module);
-    if (info.dwSize == 0)
+    if (info.dwSize == 0 && !ControlCenter::controller_exists(pid))
     {
         if (InjectSelf(pid))
         {
