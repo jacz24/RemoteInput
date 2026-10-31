@@ -373,7 +373,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                         }
 
                         JNIEnv* env = nullptr;
-                        //The pool thread attaches once and detaches when it ends: a new java.lang.Thread for each hold would move the JVM's counter of unnamed threads (#197).
+                        //Each pool thread attaches once (the pool has two): a new java.lang.Thread for each hold would move the JVM's counter of unnamed threads (#197).
                         JVM::AttachWorker(this->vm, &env);
 
                         //The thread stays attached after the task, so its local references go with a frame; declared before the wrappers, so it pops after their destructors.

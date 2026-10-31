@@ -308,7 +308,7 @@ def main(java, dll):
     checks = [
         ("presses: one press each", pressed_per_hold(presses) == [1] * 10, f"pressed per press {pressed_per_hold(presses)}"),
         ("presses: no thread attached", presses_threads == 0, f"{presses_threads} thread(s)"),
-        ("holds: each repeats, and no hold moves the counter of unnamed threads (#197: the pool thread attaches once, named)",
+        ("holds: each repeats, and no hold moves the counter of unnamed threads (#197; the counter cannot tell a named attach from an attach once: the live thread list does)",
          held_threads == 0 and len(pressed_per_hold(held)) == 10 and min(pressed_per_hold(held)) >= 2,
          f"{held_threads} thread(s), pressed per hold {pressed_per_hold(held)}"),
         ("presses and holds: no key event in the 200 ms after a release", not after_release(presses + held),

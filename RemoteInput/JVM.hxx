@@ -48,8 +48,8 @@ public:
     //Daemon attach with a name, for a thread that has no JVM env yet (the raw JavaVM of a plugin object).
     static jint AttachDaemon(JavaVM* vm, JNIEnv** env) noexcept;
 
-    //AttachDaemon once for the calling thread: it detaches when the thread ends, so a worker that calls this for each task
-    //makes one java.lang.Thread, not one for each task (#197).
+    //AttachDaemon once for the calling thread, so a worker that calls this for each task makes one java.lang.Thread, not one
+    //for each task (#197). If the thread ends before the process, it detaches then; the input pool's threads live to the exit.
     static jint AttachWorker(JavaVM* vm, JNIEnv** env) noexcept;
 };
 
