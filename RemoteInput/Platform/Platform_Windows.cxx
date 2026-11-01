@@ -333,9 +333,11 @@ char* realpath(const char* path, char* resolved_path)
 // SHA1 for Simba, finds nothing). The name is digits alone: it copies no other library's.
 // shortcut: a copy of a client that exited is deleted by the next injection of this process,
 // not by a later process, so a Simba restart leaves its last copies; add a sweep if they pile up.
+// InjectSelf records each copy it injected with the client's pid; a client that runs holds its copy open.
+static std::vector<std::pair<std::int32_t, std::string>> copies;
+
 static std::string CopySelf(const std::string& file) noexcept
 {
-    static std::vector<std::pair<std::int32_t, std::string>> copies;
     static std::mt19937_64 random{std::random_device{}()};
 
     for (auto it = copies.begin(); it != copies.end();)
@@ -398,7 +400,6 @@ bool InjectSelf(std::int32_t pid) noexcept
             return false;
         }
 
-        // The pid is recorded with the copy so a later injection deletes it once the client is gone.
         bool result = false;
 
         #if defined(CUSTOM_INJECTOR)
@@ -418,9 +419,8 @@ bool InjectSelf(std::int32_t pid) noexcept
             std::unique_ptr<Injector> injector = std::make_unique<Injector>(pid);
             if (injector)
             {
-                injector->Inject(copy);
+                result = injector->Inject(copy);
                 injectors.push_back(std::move(injector));
-                result = true;
             }
         }
         #endif
@@ -428,6 +428,11 @@ bool InjectSelf(std::int32_t pid) noexcept
         if (!result)
         {
             DeleteFileA(copy.c_str());
+        }
+        else
+        {
+            // A later injection deletes the copy once the client is gone.
+            copies.emplace_back(pid, copy);
         }
         return result;
     }
