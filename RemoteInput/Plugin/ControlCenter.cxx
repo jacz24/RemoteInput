@@ -68,6 +68,7 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                 {
                     this->io_controller = std::make_unique<InputOutput>(this->main_reflector.get());
                     this->remote_vm = std::make_unique<RemoteVM>(this->main_reflector->getEnv(), this);
+                    bool frame_refused = false;
 
                     while(!stopped)
                     {
@@ -89,11 +90,22 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                             break;
                         }
 
+                        //This thread never returns to Java, so only this frame frees a command's locals. HotSpot refuses a capacity over MaxJNILocalCapacity, 65,536 by default, and grows a frame past its capacity as it needs: upstream's 150'000 made no frame (Simba-Reflection #199).
                         JNIEnv* env = this->main_reflector->getEnv();
-                        env->PushLocalFrame(150'000);
+                        bool framed = env->PushLocalFrame(65'536) == JNI_OK;
+                        if (!framed && !frame_refused)
+                        {
+                            frame_refused = true;
+                            fprintf(stderr, "RemoteInput: the JVM refused PushLocalFrame(65536), so each command's local references stay until a restart\n");
+                        }
+
                         process_command();
                         response_signal->signal();
-                        env->PopLocalFrame(nullptr);
+
+                        if (framed)
+                        {
+                            env->PopLocalFrame(nullptr);
+                        }
                     }
 
                     //No cleanup here: only terminate() ends this loop, and the destructor that called it owns these members.
