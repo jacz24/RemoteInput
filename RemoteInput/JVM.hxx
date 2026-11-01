@@ -49,7 +49,7 @@ public:
     static jint AttachDaemon(JavaVM* vm, JNIEnv** env) noexcept;
 
     //AttachDaemon once for the calling thread, so a worker that calls this for each task makes one java.lang.Thread, not one
-    //for each task (#197). If the thread ends before the process, it detaches then; the input pool's threads live to the exit.
+    //for each task (Simba-Reflection #197). If the thread ends before the process, it detaches then; the input pool's threads live to the exit.
     static jint AttachWorker(JavaVM* vm, JNIEnv** env) noexcept;
 };
 

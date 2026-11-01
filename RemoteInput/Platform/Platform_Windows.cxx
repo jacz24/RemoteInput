@@ -5,8 +5,9 @@
 #include <string>
 #include <chrono>
 #include <cerrno>
-#include <random>
+#include <algorithm>
 #include <vector>
+#include "Random.hxx"
 #include "Thirdparty/Hook.hxx"
 #if defined(CUSTOM_INJECTOR)
 #include "Injection/Injector.hxx"
@@ -328,30 +329,43 @@ char* realpath(const char* path, char* resolved_path)
     return resolved_path;
 }
 
-// A copy of this module's file under a new random name in the temp folder, so the module in the
-// client has a different name each injection (a check by the name of the plugin's own file, a
-// SHA1 for Simba, finds nothing). The name is digits alone: it copies no other library's.
-// shortcut: a copy of a client that exited is deleted by the next injection of this process,
-// not by a later process, so a Simba restart leaves its last copies; add a sweep if they pile up.
-// InjectSelf records each copy it injected with the client's pid; a client that runs holds its copy open.
-static std::vector<std::pair<std::int32_t, std::string>> copies;
-
-static std::string CopySelf(const std::string& file) noexcept
+// Deletes each earlier copy in the folder (a name of 11 digits) that no process holds: the copy of a
+// client that exited, made by this or by any earlier Simba process (Simba-Reflection #194). Windows
+// refuses to delete a copy that a running client loaded. A copy made in the last minute stays: its
+// Simba process may not have injected it yet.
+static void DeleteOldCopies(const std::string& folder) noexcept
 {
-    static std::mt19937_64 random{std::random_device{}()};
-
-    for (auto it = copies.begin(); it != copies.end();)
+    WIN32_FIND_DATAA data;
+    HANDLE find = FindFirstFileA((folder + "*.dll").c_str(), &data);
+    if (find == INVALID_HANDLE_VALUE)
     {
-        if (!IsProcessAlive(it->first) && (DeleteFileA(it->second.c_str()) || GetLastError() == ERROR_FILE_NOT_FOUND))
-        {
-            it = copies.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
+        return;
     }
 
+    FILETIME now;
+    GetSystemTimeAsFileTime(&now);
+    const ULONGLONG minute = 60ULL * 10000000ULL;   // FILETIME counts 100 ns
+    ULONGLONG cutoff = ((static_cast<ULONGLONG>(now.dwHighDateTime) << 32) | now.dwLowDateTime) - minute;
+
+    do
+    {
+        std::string name = data.cFileName;
+        bool digits = name.size() == 15 && name.compare(11, 4, ".dll") == 0 &&
+                      std::all_of(name.begin(), name.begin() + 11, [](char c) { return c >= '0' && c <= '9'; });
+        ULONGLONG made = (static_cast<ULONGLONG>(data.ftCreationTime.dwHighDateTime) << 32) | data.ftCreationTime.dwLowDateTime;
+        if (digits && made < cutoff)
+        {
+            DeleteFileA((folder + name).c_str());
+        }
+    } while (FindNextFileA(find, &data));
+    FindClose(find);
+}
+
+// A copy of this module's file under a new random name in the temp folder, so the module in the
+// client has a different name each injection (a check by the name of the plugin's own file, a
+// SHA1 for Simba, finds nothing). The name is 11 digits alone: it copies no other library's.
+static std::string CopySelf(const std::string& file) noexcept
+{
     char temp[MAX_PATH] = {0};
     DWORD length = GetTempPathA(MAX_PATH, temp);
     if (length == 0 || length >= MAX_PATH)
@@ -359,7 +373,10 @@ static std::string CopySelf(const std::string& file) noexcept
         return {};
     }
 
-    std::string copy = std::string(temp, length) + std::to_string(random() % 90000000000ULL + 10000000000ULL) + ".dll";
+    std::string folder(temp, length);
+    DeleteOldCopies(folder);
+
+    std::string copy = folder + std::to_string(Random::instance()->generate_random_int(10000000000LL, 99999999999LL)) + ".dll";
     if (!CopyFileA(file.c_str(), copy.c_str(), TRUE))
     {
         return {};
@@ -376,12 +393,19 @@ bool InjectSelf(std::int32_t pid) noexcept
         #if !defined(CUSTOM_INJECTOR)
         extern std::vector<std::unique_ptr<Injector>> injectors;
 
+        Injector* existing = nullptr;
         for (auto& injector : injectors)
         {
-            if (injector && injector->get_pid() == pid && injector->is_injected())
+            if (injector && injector->get_pid() == pid)
             {
-                return true;
+                existing = injector.get();
+                break;
             }
+        }
+
+        if (existing && existing->is_injected())
+        {
+            return true;
         }
         #endif
 
@@ -405,16 +429,11 @@ bool InjectSelf(std::int32_t pid) noexcept
         #if defined(CUSTOM_INJECTOR)
         result = Injector::Inject(copy, pid, nullptr);
         #else
-        for (auto& injector : injectors)
+        if (existing)
         {
-            if (injector && injector->get_pid() == pid)
-            {
-                result = injector->Inject(copy);
-                break;
-            }
+            result = existing->Inject(copy);
         }
-
-        if (!result)
+        else
         {
             std::unique_ptr<Injector> injector = std::make_unique<Injector>(pid);
             if (injector)
@@ -428,11 +447,6 @@ bool InjectSelf(std::int32_t pid) noexcept
         if (!result)
         {
             DeleteFileA(copy.c_str());
-        }
-        else
-        {
-            // A later injection deletes the copy once the client is gone.
-            copies.emplace_back(pid, copy);
         }
         return result;
     }

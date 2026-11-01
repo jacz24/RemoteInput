@@ -1,16 +1,19 @@
 #include "JVM.hxx"
 
-#include <random>
+#include <atomic>
+#include "Random.hxx"
 
 namespace
 {
     //A name in the style of the client's own pool threads ("pool-3-thread-1"), with a pool number the client has not
-    //reached: the JVM would otherwise name the thread "Thread-N" from Java's counter of unnamed threads (#197).
-    //shortcut: a pool of that number can appear later in the client; the names need not be unique.
+    //reached: the JVM would otherwise name the thread "Thread-N" from Java's counter of unnamed threads (Simba-Reflection
+    //#197). One counter from a random start past the client's pools (its next is pool-5), so no two of ours share a name.
+    //shortcut: the client's later pools count up through the same numbers, so one can share a name with ours; when a check
+    //looks for two threads of one name, take the number from the client's own counter (Executors.DefaultThreadFactory.poolNumber).
     std::string ThreadName() noexcept
     {
-        static thread_local std::mt19937 engine{std::random_device{}()};
-        return "pool-" + std::to_string(std::uniform_int_distribution<int>(5, 40)(engine)) + "-thread-1";
+        static std::atomic<std::int64_t> pool{Random::instance()->generate_random_int(5, 40)};
+        return "pool-" + std::to_string(pool++) + "-thread-1";
     }
 
     //Detaches a thread that AttachWorker attached, when the thread ends.
