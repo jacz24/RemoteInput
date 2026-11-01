@@ -97,6 +97,7 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                         {
                             refusal_reported = true;
                             fprintf(stderr, "RemoteInput: the JVM refused PushLocalFrame(65536), so each command's local references stay until a restart\n");
+                            fflush(stderr);   //msvcrt flushes a stderr that is a file, as a client's log is, only when full or at a clean exit
                         }
 
                         process_command();
