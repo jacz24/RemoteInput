@@ -205,8 +205,7 @@ bool ControlCenter::send_command(Func &&sender) const noexcept
 }
 
 //An input command's answer is the count of events the client could not build (Simba-Reflection #74). Simba's input
-//calls return nothing, so print it, as EIOS_PairClient prints its error; DllMain's unbuffered stderr sends it at once
-//(on a pipe, a buffered one showed it only when Simba exited).
+//calls return nothing, so print it, as EIOS_PairClient prints its error (DllMain makes stderr unbuffered).
 template<typename Func>
 void ControlCenter::send_input(const char* caller, Func &&sender) const noexcept
 {

@@ -231,7 +231,7 @@ extern "C" EXPORT BOOL APIENTRY DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPV
             module = hinstDLL;
             DisableThreadLibraryCalls(hinstDLL);
 
-            //msvcrt holds the lines of a stderr that is a file, as a client's log is, until the buffer is full or a clean exit, so a JVM that dies loses them (Simba-Reflection #202)
+            //msvcrt holds the lines of a stderr that is a file or a pipe, as a client's log and Simba's console are, until the buffer is full or a clean exit, so a JVM that dies loses them (Simba-Reflection #202)
             setvbuf(stderr, nullptr, _IONBF, 0);
 
             __load();
