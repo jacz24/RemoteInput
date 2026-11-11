@@ -10,7 +10,8 @@ plugin's exports:
             B's press ends A's repeat; B repeats after its own delay; B's release ends the repeat while A is still down,
             and A posts nothing more until its release. A's and B's first repeats came 511 and 507 ms after their
             presses, at the OS's 500 ms.
-  older     hold A, hold B, release A, release B, 1 s apart: the release of the older key leaves B's repeat alone.
+  older     hold A, hold B, release A, release B, 1 s apart: the release of the older key starts B's delay again, as the
+            operator's keyboard did (#164), and B repeats on to its own release.
   long      hold A 4 s, then D 4 s, 2 s apart, as the operator held them (#142): the fold below.
   modifiers MODIFIER_STEPS, #164's steps of a letter and a modifier (Shift, Ctrl, Alt, each side), one action a second,
             each step an episode of keys (episodes()): the probe prints each one's runs, and checks the steps read back.
@@ -43,6 +44,8 @@ usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py --model   (the fold gate and the intervals on a model of the plugin's grid,
                                                         and episodes() on a made-up log)
 JVM_OPTS adds JVM options (-Xcheck:jni). Exit 0 only when every check passes.
+One file past 500 lines: each probe stands alone under python -I (ca7ae70's review), and the keyboard modes read the
+operator's logs with the same parsers and rule as the plugin's phases.
 """
 import ctypes
 import math
@@ -98,8 +101,9 @@ def os_ticks_ms():
 
 
 def repeat_holds(events):
-    """Each key's run of presses as (key, its press's arrival, its repeats' arrivals), in µs: a run ends at its key's
-    release or at another key's press."""
+    """Each key's run of presses as (key, its start's arrival, its repeats' arrivals), in µs: a run starts at its key's
+    press, or at another key's release while it repeats, where the keyboard starts the delay again (#164), and ends at
+    its key's release or another key's press or release."""
     holds, held = [], None
     for kind, code, us, *_ in events:
         if kind == PRESSED and held and held[0] == code:
@@ -109,6 +113,9 @@ def repeat_holds(events):
             holds.append(held)
         elif kind == RELEASED and held and held[0] == code:
             held = None
+        elif kind == RELEASED and held:
+            held = (held[0], us, [])
+            holds.append(held)
     return holds
 
 
@@ -216,7 +223,7 @@ def after_release(events, window_us=200_000):
 
 def check_rollover(events, delay_ms, first_release):
     """The faults of a two-key hold (A, then B) whose first release is first_release: A repeats, B's press ends it, B
-    repeats after its own delay; B's release ends the repeat, and A's leaves it alone."""
+    repeats after its own delay; B's release ends the repeat, and after A's B repeats on (its delay again, #164)."""
     faults = []
     presses = [(code, us) for kind, code, us, *_ in events if kind == PRESSED]
     releases = [(code, us) for kind, code, us, *_ in events if kind == RELEASED]
@@ -300,7 +307,10 @@ def keyboard_shape(step):
     out, repeating = [], None
     for token in step.split():
         out.append(token)
-        repeating = token[1:] if token[0] == "+" else None if token[1:] == repeating else repeating
+        if token[0] == "+":
+            repeating = token[1:]
+        elif token[1:] == repeating:
+            repeating = None
         if repeating:
             out.append("*" + repeating)
     return " ".join(out)
@@ -497,6 +507,9 @@ def model(runs=400):
     assert shape_faults(made) == ["+LShift -LShift, expected +LShift *LShift -LShift"], shape_faults(made)
     assert keyboard_shape("+A +LShift +B -B -LShift -A") == "+A *A +LShift *LShift +B *B -B -LShift -A"
     assert keyboard_shape("+A +B -A -B") == "+A *A +B *B -A *B -B"
+    # repeat_holds: A's run, LShift's, and LShift's again from A's release, where its delay starts again.
+    assert [(code, start, len(reps)) for code, start, reps in repeat_holds(made)] == \
+        [(VK_A, 10_000, 2), (0x10, 1_000_000, 1), (0x10, 2_000_000, 1), (0x10, 5_000_000, 0)], repeat_holds(made)
     return 0
 
 

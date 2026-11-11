@@ -65,7 +65,7 @@ enum ControlKeys : std::uint32_t
     VK_RETURN = 0x0D
 };
 
-//A held control key posts one press, no KEY_TYPED and no repeat, as a Mac modifier does; VK_SHIFT, VK_CONTROL and VK_ALT are the codes Simba sends.
+//The control keys: no KEY_TYPED, and one press with no repeat but for Shift, Ctrl and Alt on Windows (IsOnePressKey); VK_SHIFT, VK_CONTROL and VK_ALT are the codes Simba sends.
 static ControlKeys control_keys[] = {
     ControlKeys::VK_FUNCTION,
     ControlKeys::VK_NUM_LOCK,
@@ -293,7 +293,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
     {
         if (IsOnePressKey(code))
         {
-            //Control Keys only generate a single held event..
+            //A one-press key only generates a single held event..
             held_keys.push_back(code);
 
             //PostEvent
@@ -570,6 +570,8 @@ void InputOutput::release_key(std::int32_t code, bool react) noexcept
             //each interval: the operator's keyboard (Simba-Reflection #164) did so 500-515 ms after a release, a letter's
             //repeat after a letter's, a modifier's after a letter's and a letter's after Shift's, as a first repeat after
             //its press. A newer task ends this key's under the lock its loop holds. macOS and Linux were not measured.
+            //shortcut: a release inside the repeating key's first delay restarts that delay too, as the same rule reads;
+            //each capture's newest key was already repeating: log a rollover released inside the delay if it matters.
             #if defined(_WIN32) || defined(_WIN64)
             if (currently_held_key != -1)
             {
