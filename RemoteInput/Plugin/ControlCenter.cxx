@@ -56,7 +56,16 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
         throw std::runtime_error("Cannot Initialize Wait Signal");
     }
 
-    if (!is_controller)
+    if (is_controller)
+    {
+        //A controller killed inside a command leaves the client's answer to it, which would answer this controller's first
+        //command before the client ran it, and each command after it one late (Simba-Reflection #254).
+        //shortcut: a command still running at this pair answers after the drain; the window is that command's length.
+        while (response_signal->try_wait())
+        {
+        }
+    }
+    else
     {
         this->set_parent_process_id(-1);
         this->set_parent_thread_id(-1);
@@ -77,7 +86,7 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                             break;
                         }
 
-                        command_signal->wait();
+                        bool command = wait_for_command();
 
                         /*while(!command_signal->try_wait())
                         {
@@ -99,8 +108,16 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                             fprintf(stderr, "RemoteInput: the JVM refused PushLocalFrame(65536), so each command's local references stay until a restart\n");
                         }
 
-                        process_command();
-                        response_signal->signal();
+                        if (command)
+                        {
+                            track_owner();
+                            process_command();
+                            response_signal->signal();
+                        }
+                        else
+                        {
+                            release_owner_input();
+                        }
 
                         if (framed)
                         {
@@ -1158,6 +1175,75 @@ bool ControlCenter::blocks_real_input(bool keyboard) const noexcept
     std::int64_t holder = holder_key();
     return holder != -1 && holder == (keyboard ? keyboard_blocker : mouse_blocker)
            && IsProcessAlive(parent_process_id()) && IsThreadAlive(parent_thread_id());
+}
+
+// A command (true), or on Windows the end of the owner's thread (false): a controller that is killed runs no code of its
+// own end, so the client lets go of its input with no command (Simba-Reflection #254). The OS signals the thread at its
+// end, the process's too, so the client waits on no timer. A command comes first when both are there, so the dead
+// owner's last command runs before the let-go.
+// shortcut: macOS and Linux wait for a command alone, so a dead owner's input waits for the next holder's first command
+// (track_owner): add each OS's wait on a thread's end when a machine of it can test one.
+bool ControlCenter::wait_for_command() noexcept
+{
+    #if defined(_WIN32) || defined(_WIN64)
+    if (owner_thread)
+    {
+        HANDLE handles[] = {command_signal->native_handle(), owner_thread};
+        return WaitForMultipleObjects(2, handles, FALSE, INFINITE) == WAIT_OBJECT_0;   // a failure ends the watch too
+    }
+    #endif
+
+    command_signal->wait();
+    return true;
+}
+
+// Before each command: a holder other than the owner (a new pair, or none after a release) finds the owner's input let
+// go first, so a lost owner's let-go never reaches a new holder's input, and the new holder becomes the owner. The owner
+// is the pair's thread, as for the block of real input (blocks_real_input) and controller_is_paired.
+void ControlCenter::track_owner() noexcept
+{
+    std::int64_t holder = holder_key();
+    if (holder == input_owner)
+    {
+        return;
+    }
+
+    if (input_owner != -1)
+    {
+        release_owner_input();
+    }
+    input_owner = holder;
+
+    #if defined(_WIN32) || defined(_WIN64)
+    if (holder != -1)
+    {
+        //The handle keeps the thread's ID from reuse while the client waits on it. A thread that has ended already is no
+        //pair (controller_is_paired frees it), so it is not watched, and its input waits for the next holder.
+        HANDLE thread = OpenThread(SYNCHRONIZE, FALSE, static_cast<DWORD>(holder));
+        if (thread && WaitForSingleObject(thread, 0) != WAIT_TIMEOUT)
+        {
+            CloseHandle(thread);
+            thread = nullptr;
+        }
+        owner_thread = thread;
+    }
+    #endif
+}
+
+// Lets go of each key and button the owner held, at once and once (stop_all_processing, which posts nothing for none):
+// an emergency end, with no hand's gaps. Its key releases end the repeat under the repeat task's lock.
+void ControlCenter::release_owner_input() noexcept
+{
+    io_controller->stop_all_processing();
+
+    #if defined(_WIN32) || defined(_WIN64)
+    if (owner_thread)
+    {
+        CloseHandle(owner_thread);
+        owner_thread = nullptr;
+    }
+    #endif
+    input_owner = -1;
 }
 
 std::int32_t ControlCenter::get_image_width() const noexcept
