@@ -509,6 +509,41 @@ BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) noexcept
     return TRUE;
 }
 
+NativeKey GetNativeKey(std::int32_t virtual_key) noexcept
+{
+    //A message names Shift, Ctrl or Alt alone: its side is in the scancode, which the peer's table does not read.
+    std::int32_t key = virtual_key >= VK_LSHIFT && virtual_key <= VK_RMENU ? VK_SHIFT + (virtual_key - VK_LSHIFT) / 2 : virtual_key;
+    NativeKey native = {key, 0, 0, 0};
+    if (key <= 0 || key > 0xFF)
+    {
+        return native;
+    }
+
+    //The peer maps on its toolkit thread's layout, the thread that owns the frame.
+    HWND frame = nullptr;
+    EnumWindows(EnumWindowsProc, reinterpret_cast<LPARAM>(&frame));
+    HKL layout = GetKeyboardLayout(frame ? GetWindowThreadProcessId(frame, nullptr) : 0);
+
+    native.scancode = static_cast<std::int32_t>(MapVirtualKeyExW(key, MAPVK_VK_TO_VSC, layout));
+    if (native.scancode)
+    {
+        //The key alone held, as the peer's table: its char with no modifier. Flag 4 keeps this thread's dead-key state
+        //(Windows 10 1607 and later), where the peer resets its own after.
+        BYTE state[256] = {0};
+        state[key] = 0x80;
+        WCHAR chars[16] = {0};
+        int count = ToUnicodeEx(key, native.scancode, state, chars, 16, 4, layout);
+        native.unicode = count == 1 || count == -1 ? chars[0] : 0;
+
+        //A numpad key's entry takes its key code at each event (UpdateDynPrimaryKeymap), as "/" and "NumPad /" share a char.
+        //shortcut: a dead key's (-1) holds the key code here, where the peer's holds its VK_DEAD_* (charToDeadVKTable);
+        //the fork's key code of such a key is a US table's anyway. Map it when a client runs a layout with dead keys.
+        bool numpad = key == VK_CLEAR || (key >= VK_NUMPAD0 && key <= VK_DIVIDE) || key == VK_NUMLOCK;
+        native.extended_char = count == 1 && !numpad ? chars[0] : 0;
+    }
+    return native;
+}
+
 std::unique_ptr<Reflection> GetNativeReflector() noexcept
 {
     auto TimeOut = [&](std::uint32_t time, std::function<bool()> &&run) -> bool {

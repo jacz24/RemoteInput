@@ -299,7 +299,8 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                  modifiers,
                                  keycode,
                                  static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                                 location);
+                                 location,
+                                 code);
         }
         else
         {
@@ -342,7 +343,8 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                      modifiers,
                                      keycode,
                                      key_char,
-                                     location);
+                                     location,
+                                     code);
 
                 //A key with no char (an arrow, an F-key) gets no WM_CHAR on Windows, so real AWT posts no KEY_TYPED (#82).
                 if (key_char != static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED))
@@ -425,7 +427,8 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                                  modifiers,
                                                  keycode,
                                                  key_char,
-                                                 location);
+                                                 location,
+                                                 code);
 
                             //Each repeat is a WM_KEYDOWN: no KEY_TYPED for a key with no char, as for its press (#82).
                             if (key_char != static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED))
@@ -481,7 +484,8 @@ void InputOutput::release_key(std::int32_t code, bool react) noexcept
                                  modifiers,
                                  keycode,
                                  static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                                 location);
+                                 location,
+                                 code);
         }
         else
         {
@@ -527,7 +531,8 @@ void InputOutput::release_key(std::int32_t code, bool react) noexcept
                                  modifiers,
                                  keycode,
                                  key_char,
-                                 location);
+                                 location,
+                                 code);
         }
     }
 }
@@ -588,13 +593,17 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
                                      modifiers,
                                      keycode,
                                      static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                                     location);
+                                     location,
+                                     code);
 
                 yield_thread(std::chrono::milliseconds(lround(Random::instance()->generate_random_float(1.0, 1.1) * keymodwait)));
             }
         }
 
         //Character Key
+        //shortcut: a char passes no native key, so its press and release keep the four native fields 0 (Simba-Reflection
+        //#206): its key is the layout's (VkKeyScanEx), and its keycode the char's (VK_EXCLAMATION_MARK for '!'), not a
+        //key's. Pass its key when a caller types through send_string, send_key or key_send: Simba-Reflection presses keys.
         std::int32_t code = static_cast<std::int32_t>(c);
         std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t keycode = CharToJavaKeyCode(code);
@@ -652,7 +661,8 @@ void InputOutput::send_string(std::string string, std::int32_t keywait, std::int
                                  modifiers,
                                  keycode,
                                  static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                                 location);
+                                 location,
+                                 code);
 
             yield_thread(std::chrono::milliseconds(lround(Random::instance()->generate_random_float(1.0, 1.1) * keymodwait)));
         }
@@ -696,12 +706,13 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
                              modifiers,
                              keycode,
                              static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                             location);
+                             location,
+                             code);
 
         yield_thread(std::chrono::milliseconds(modifier_down_time));
     }
 
-    //Character Key
+    //Character Key: no native key (send_string's shortcut)
     std::int32_t code = static_cast<std::int32_t>(key);
     std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     std::int32_t keycode = CharToJavaKeyCode(code);
@@ -756,7 +767,8 @@ void InputOutput::send_key(char key, std::int32_t key_down_time, std::int32_t ke
                              modifiers,
                              keycode,
                              static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                             location);
+                             location,
+                             code);
 
         yield_thread(std::chrono::milliseconds(modifier_up_time));
     }
@@ -807,13 +819,14 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
                                      modifiers,
                                      keycode,
                                      static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                                     location);
+                                     location,
+                                     code);
 
                 yield_thread(std::chrono::milliseconds(sleeptimes[sleepindex++]));
             }
         }
 
-        //Character Key
+        //Character Key: no native key (send_string's shortcut)
         std::int32_t code = static_cast<std::int32_t>(c);
         std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
         std::int32_t keycode = CharToJavaKeyCode(code);
@@ -871,7 +884,8 @@ void InputOutput::key_send(std::string string, std::vector<std::int32_t> sleepti
                                  modifiers,
                                  keycode,
                                  static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED),
-                                 location);
+                                 location,
+                                 code);
 
             yield_thread(std::chrono::milliseconds(sleeptimes[sleepindex++]));
         }
