@@ -27,6 +27,20 @@ std::vector<std::string> GetLoadedModuleNames(const char* partial_module_name) n
 void* GetModuleHandle(const char* module_name) noexcept;
 #endif
 
+#if defined(_WIN32) || defined(_WIN64)
+//A key's entry in the table the JDK's Windows peer keeps of the client's layout (awt_Component.cpp's dynPrimaryKeymap,
+//BuildPrimaryDynamicTable; the same in JDK 11 and 25): the private fields of each key event it posts (Simba-Reflection #206).
+struct NativeKey
+{
+    std::int32_t raw_code;      //the WM_KEYDOWN's key: VK_SHIFT, VK_CONTROL or VK_MENU for either side
+    std::int32_t scancode;      //MapVirtualKey's: the left key's for either side, with no extended prefix
+    std::int32_t unicode;       //the key's char with no modifier held, or 0
+    std::int32_t extended_char; //the char whose extended key code the table holds, or 0: the table holds the key code
+    bool dead_key;              //the table holds a VK_DEAD_* code, which GetNativeKey does not map
+};
+NativeKey GetNativeKey(std::int32_t virtual_key) noexcept;
+#endif
+
 #if defined(__APPLE__)
 void GetInputTimings(std::int32_t &key_repeat_delay, std::int32_t &key_repeat_interval, std::int32_t &double_click_time) noexcept;
 #endif
