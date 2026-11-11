@@ -1257,7 +1257,7 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
 
 void InputOutput::hold_mouse(std::int32_t button) noexcept
 {
-    if (!this->is_mouse_held(button))
+    if (SimbaMouseButtonToJava(button) != 0 && !this->is_mouse_held(button))
     {
         extern std::unique_ptr<ControlCenter> control_center;
         if (!control_center)
@@ -1469,13 +1469,8 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
 
 bool InputOutput::is_mouse_held(std::int32_t button) const noexcept
 {
-    switch (button)
-    {
-        case 1: return mouse_buttons[0];
-        case 2: return mouse_buttons[1];
-        case 3: return mouse_buttons[2];
-        default: return false;
-    }
+    std::int32_t held = SimbaMouseButtonToJava(button);
+    return held != 0 && mouse_buttons[held - 1];
 }
 
 void InputOutput::stop_all_processing() noexcept
@@ -1484,9 +1479,9 @@ void InputOutput::stop_all_processing() noexcept
     std::int32_t y = 0;
 
     this->get_mouse_position(&x, &y);
-    this->release_mouse(0);
     this->release_mouse(1);
     this->release_mouse(2);
+    this->release_mouse(3);
 
     for (std::int32_t key : std::vector<std::int32_t>(held_keys.begin(), held_keys.end()))
     {
@@ -1684,9 +1679,18 @@ std::int32_t InputOutput::ModifiersForChar(char c) const noexcept
 
 std::int32_t InputOutput::SimbaMouseButtonToJava(std::int32_t button) const noexcept
 {
-    //Java Button priority is 1 (left), 3 (right), 2 (middle)
-    //Simba Button priority is 1 (left), 0 (right), 2 (middle)
-    return button == 1 ? 1 : button == 0 ? 3 : button == 2 ? 2 : button;
+    //The one button number of every boundary: Simba's target calls, the EIOS exports and the command payload pass the
+    //caller's number unchanged to here. 1 left, 2 middle, 3 right, as Simba 2 sends them (MouseButtonToInt at Simba
+    //146e4d67e3) and as Java numbers them; 0 is right too, Simba 1's number, an alias kept for its callers. Any other
+    //number (Simba 2's 4 and 5, its scroll buttons) is no button: 0, which presses, releases and reads nothing.
+    switch (button)
+    {
+        case 1: return 1;
+        case 2: return 2;
+        case 0:
+        case 3: return 3;
+        default: return 0;
+    }
 }
 
 void InputOutput::get_applet_dimensions(std::int32_t &x, std::int32_t &y, std::size_t &width, std::size_t &height) const noexcept
