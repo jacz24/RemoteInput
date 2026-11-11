@@ -1233,41 +1233,25 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
         clickable_buttons = 0;
     }
 
+    this->x = x; this->y = y;
     if (isRequestedPositionInsideComponent && !isMouseInsideComponent)
     {
-        //MOUSE_ENTERED
-        this->x = x; this->y = y;
         java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_ENTERED, when, buttonMask, x, y, 0, false, 0);
-        java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_MOVED, when, buttonMask, x, y, 0, false, 0);
     }
     else if (!isRequestedPositionInsideComponent && isMouseInsideComponent)
     {
-        //MOUSE_EXITED
-        this->x = x; this->y = y;
         java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_EXITED, when, buttonMask, x, y, 0, false, 0);
     }
-    else if (isRequestedPositionInsideComponent && isMouseInsideComponent)
+
+    //A held button's move is a drag on either side of the edge, after the exit or the entry: the peer's capture of the mouse
+    //sends each move to the canvas (Simba-Reflection #253, gate 10's held-edge steps). With none held, a move inside alone.
+    if (isDragging)
     {
-        //MOUSE_MOVED OR MOUSE_DRAGGED
-        if (isDragging)
-        {
-            this->x = x; this->y = y;
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, 0, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), drag_button);
-        }
-        else
-        {
-            this->x = x; this->y = y;
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_MOVED, when, buttonMask, x, y, 0, false, 0);
-        }
+        java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, 0, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), drag_button);
     }
-    else if (!isRequestedPositionInsideComponent && !isMouseInsideComponent)
+    else if (isRequestedPositionInsideComponent)
     {
-        //MOUSE_DRAGGED OUTSIDE
-        this->x = x; this->y = y;
-        if (isDragging)
-        {
-            java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, when, buttonMask, x, y, 0, IsPopupTrigger(java::MouseEvent::MouseEventCodes::MOUSE_DRAGGED, button, buttonMask), drag_button);
-        }
+        java::MouseEvent::Post(env, &receiver, java::MouseEvent::MouseEventCodes::MOUSE_MOVED, when, buttonMask, x, y, 0, false, 0);
     }
 }
 

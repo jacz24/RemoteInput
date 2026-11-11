@@ -34,6 +34,7 @@ cursor, a window's move): the probe reports those apart and fails on none. Two s
 usage: javac --release 11 -d testbed/out testbed/MoveLog.java
        python -I testbed/probe_same_point.py <java.exe> <libRemoteInput.dll>
 Exit 0 only when each step posted exactly its events.
+probe_held_edge.py (#253) imports session: keep its signature and its steps' (lib, eios, move, size) callback.
 """
 import ctypes
 import os
