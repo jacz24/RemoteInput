@@ -39,8 +39,15 @@ private:
     // The holder (holder_key) that last turned off the mouse's or the keyboard's real input, -1 for none (#13).
     std::atomic<std::int64_t> mouse_blocker{-1};
     std::atomic<std::int64_t> keyboard_blocker{-1};
+    // The holder at the last command (holder_key), whose held input the client lets go of when that holder is lost
+    // (Simba-Reflection #254), -1 for none; on Windows, owner_thread is a handle on its thread. The command thread's alone.
+    std::int64_t input_owner{-1};
+    void* owner_thread{nullptr};
 
     std::int64_t holder_key() const noexcept;
+    bool wait_for_command() noexcept;
+    void track_owner() noexcept;
+    void release_owner_input(bool react) noexcept;
 
     bool init_maps() noexcept;
     bool init_signals() noexcept;

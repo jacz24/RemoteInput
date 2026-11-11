@@ -447,7 +447,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
     }
 }
 
-void InputOutput::release_key(std::int32_t code) noexcept
+void InputOutput::release_key(std::int32_t code, bool react) noexcept
 {
     extern std::unique_ptr<ControlCenter> control_center;
     if (!control_center)
@@ -465,7 +465,7 @@ void InputOutput::release_key(std::int32_t code) noexcept
             java::Component receiver = control_center->reflect_canvas();
             if (!this->has_focus(&receiver))
             {
-                this->gain_focus(&receiver, true);
+                this->gain_focus(&receiver, react);
             }
 
             JNIEnv* env = receiver.getEnv();
@@ -502,7 +502,7 @@ void InputOutput::release_key(std::int32_t code) noexcept
             java::Component receiver = control_center->reflect_canvas();
             if (!this->has_focus(&receiver))
             {
-                this->gain_focus(&receiver, true);
+                this->gain_focus(&receiver, react);
             }
 
             JNIEnv* env = receiver.getEnv();
@@ -1473,7 +1473,9 @@ bool InputOutput::is_mouse_held(std::int32_t button) const noexcept
     return java_button != 0 && mouse_buttons[java_button - 1];
 }
 
-void InputOutput::stop_all_processing() noexcept
+//react false: no person's reaction before the first key release on a canvas that lacks focus (a lost controller's
+//let-go, Simba-Reflection #254, which no hand makes); the regain's own events and gaps stay.
+void InputOutput::stop_all_processing(bool react) noexcept
 {
     std::int32_t x = 0;
     std::int32_t y = 0;
@@ -1485,7 +1487,7 @@ void InputOutput::stop_all_processing() noexcept
 
     for (std::int32_t key : std::vector<std::int32_t>(held_keys.begin(), held_keys.end()))
     {
-        this->release_key(key);
+        this->release_key(key, react);
     }
 
     this->set_keyboard_input_enabled(true);

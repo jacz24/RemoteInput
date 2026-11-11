@@ -30,6 +30,8 @@ public:
 
     bool try_wait() noexcept;
 
+    auto native_handle() const noexcept { return primitive.native_handle(); }   // only a primitive that has one
+
     template<typename Rep, typename Period>
     bool try_wait_for(const std::chrono::duration<Rep, Period>& relative_time) noexcept;
 

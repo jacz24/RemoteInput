@@ -97,7 +97,7 @@ public:
     void set_focus_reaction(double mu, double sigma, double tau) noexcept;
 
     void hold_key(std::int32_t code) noexcept;
-    void release_key(std::int32_t code) noexcept;
+    void release_key(std::int32_t code, bool react = true) noexcept;   // react: gain_focus's, when the canvas lacks focus
     bool is_key_held(std::int32_t code) const noexcept;
     void send_string(std::string string, std::int32_t keywait, std::int32_t keymodwait) const noexcept;
     void send_key(char key, std::int32_t key_down_time, std::int32_t key_up_time, std::int32_t modifier_down_time, std::int32_t modifier_up_time) const noexcept;
@@ -110,7 +110,7 @@ public:
     void release_mouse(std::int32_t button) noexcept;
     void scroll_mouse(std::int32_t lines) noexcept;
     bool is_mouse_held(std::int32_t button) const noexcept;
-    void stop_all_processing() noexcept;
+    void stop_all_processing(bool react = true) noexcept;
 
 private:
     friend class ControlCenter;

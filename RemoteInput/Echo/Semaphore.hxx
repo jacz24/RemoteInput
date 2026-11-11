@@ -64,6 +64,10 @@ public:
     
     bool try_acquire() const noexcept;
 
+    #if defined(_WIN32) || defined(_WIN64)
+    HANDLE native_handle() const noexcept { return hSemaphore; }   // for a wait on it beside another object
+    #endif
+
     template<typename Rep, typename Period>
     bool try_acquire_for(const std::chrono::duration<Rep, Period>& duration) const noexcept
     {
