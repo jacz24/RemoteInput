@@ -38,11 +38,11 @@ def held(lib, eios, move, buttons, outside):
     if not outside:
         actions += back
         want += [f'ENTERED 100 100 0 0 {mask}', f'DRAGGED 100 100 0 0 {mask}']
-    x = 500 if outside else 100
+    release_x = 500 if outside else 100
     for b in reversed(buttons):
         mask &= ~MASK[b]
         actions.append(lambda b=b: lib.EIOS_ReleaseMouse(eios, 0, 0, b))
-        want.append(f'RELEASED {x} 100 {b} 1 {mask}')
+        want.append(f'RELEASED {release_x} 100 {b} 1 {mask}')
     if outside:
         actions += back
         want += ['ENTERED 100 100 0 0 0', 'MOVED 100 100 0 0 0']
