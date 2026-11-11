@@ -4,6 +4,8 @@ import java.awt.EventQueue;
 import java.awt.Frame;
 import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.util.Scanner;
 
 // The client of probe_lost_events.py (Simba-Reflection #74, after #62's) and probe_key_repeat.py (#17): a hidden Frame
@@ -71,11 +73,15 @@ public class KeyLog {
         frame.pack();
         if (args.length > 0 && args[0].equals("show")) {   // probe_key_repeat.py --keyboard: the operator's own keys
             frame.setSize(400, 200);
+            frame.addWindowListener(new WindowAdapter() {   // the operator ends the log by closing the window
+                @Override
+                public void windowClosing(WindowEvent e) { System.exit(0); }
+            });
             frame.setVisible(true);
         }
         System.out.println("READY " + ProcessHandle.current().pid() + " " + System.getProperty("java.version"));
         System.out.flush();
-        Thread.sleep(120_000);   // probe_key_repeat.py's phases take about 51 s
+        Thread.sleep(600_000);   // probe_key_repeat.py's phases take about 105 s; a keyboard log ends at the window's close
         System.exit(0);
     }
 }
