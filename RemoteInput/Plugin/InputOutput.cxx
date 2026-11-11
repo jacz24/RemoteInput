@@ -1209,8 +1209,11 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
     //Key extended masks
     buttonMask |= GetActiveKeyModifiers();
 
-    //A held button that stays put is no drag: the OS posts nothing.
-    if (isDragging && x == this->x && y == this->y)
+    //A move to the cursor's own point posts nothing, held button or not: the Windows peer drops a WM_MOUSEMOVE to its last
+    //point (WmMouseMove), and its entry and exit come from the OS's tracking of the cursor, not from a move.
+    //shortcut: a resize that moves the canvas's edge across a cursor that stays put posts no entry or exit, where the OS's
+    //tracking posts one; model that tracking if a client resizes under a cursor that stays put.
+    if (x == this->x && y == this->y)
     {
         return;
     }
