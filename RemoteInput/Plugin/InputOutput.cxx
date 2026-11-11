@@ -1192,6 +1192,11 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
 
     java::Component receiver = control_center->reflect_canvas();
     JNIEnv* env = receiver.getEnv();
+
+    //Inside at the size the last call saw: a resize can move the canvas's edge across a cursor that stays put.
+    //shortcut: a press, release or scroll after the resize sees the new size first, so its crossing posts nothing, as before
+    //Simba-Reflection #252; keep the inside state each entry and exit posts if a client resizes under a cursor that stays put.
+    bool wasInside = !(this->x < 0 || this->y < 0 || this->x >= static_cast<std::int32_t>(this->w) || this->y >= static_cast<std::int32_t>(this->h));
     this->handle_resize(&receiver);
 
     std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -1209,10 +1214,16 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
     //Key extended masks
     buttonMask |= GetActiveKeyModifiers();
 
-    //A held button that stays put is no drag: the OS posts nothing.
-    if (isDragging && x == this->x && y == this->y)
+    //A move to the cursor's own point posts nothing, held button or not: the Windows peer drops a WM_MOUSEMOVE to its last
+    //point (WmMouseMove, Simba-Reflection #252). A resize that moved the canvas's edge across the point is no repeat: the
+    //move posts the entry or the exit. A held button that stays put is no drag, crossed or not.
+    if (x == this->x && y == this->y)
     {
-        return;
+        if (isDragging || isRequestedPositionInsideComponent == wasInside)
+        {
+            return;
+        }
+        isMouseInsideComponent = wasInside;
     }
 
     //A move with a button held is a drag: no held button posts MOUSE_CLICKED. AppKit gives the drag and the release after it clickCount 0;
