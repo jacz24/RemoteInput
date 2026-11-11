@@ -11,8 +11,13 @@ process. A step's events are the client's posts after its start.
                    input comes up once, no press comes after the first release, and the first release comes within
                    LAG_MOST_MS of the kill. The lag and the gaps between the releases are printed.
   idle             a controller that held nothing (one read, so the client knew it) is killed: nothing is posted
-  replace          this process pairs: nothing reads held; a move and a left click; B held past its repeat delay and the
-                   watch: B repeats, reads held, and comes up only at this process's release
+  unfocused        a controller holds Shift and left, the canvas loses focus (OwnerLog's UNFOCUS), and the probe kills
+                   it: the left button and Shift come up within LAG_MOST_MS, as the let-go regains the focus with no
+                   person's reaction (#61's wait, about 200 ms, is a hand's, which a lost controller's let-go is not)
+  replace          a controller holds as in killed, and this process pairs the moment it is killed, so the client's
+                   let-go and this pair's first command race: the five come up once, before this pair's input; nothing
+                   reads held; a move and a left click; B held past its repeat delay and the watch: B repeats, reads
+                   held, and comes up only at this process's release
   in-flight        a controller's hold of A is inside its post (OwnerLog's SLOW) when it is killed: A comes up once,
                    after the post
   after-in-flight  this process pairs again: its first read gives the repeat delay, and a click posts and reads as in
@@ -79,6 +84,9 @@ def controller(dll, pid, mode):
             lib.EIOS_HoldKey(eios, key)
         for button in (1, 2, 3):
             lib.EIOS_HoldMouse(eios, 0, 0, button)
+    elif mode == 'hold-shift':   # no key that repeats: a repeat regains the focus itself
+        lib.EIOS_HoldKey(eios, VK_SHIFT)
+        lib.EIOS_HoldMouse(eios, 0, 0, 1)
     else:
         lib.EIOS_IsMouseButtonHeld(eios, 1)   # a command, so the client knows this controller
     print('READY', flush=True)
@@ -169,31 +177,52 @@ def main(java, dll):
         time.sleep(WATCH)
         report('idle', not names(start), names(start), 'nothing')
 
+        # unfocused
+        child = spawn('hold-shift')
+        jvm.stdin.write('UNFOCUS\n')
+        jvm.stdin.flush()
+        time.sleep(SETTLE)   # OwnerLog's reader takes the line
+        start = len(events)
+        killed_at = kill(child)
+        time.sleep(WATCH)
+        got = events[start:]
+        lags = [round(int(f[-1]) - killed_at) for f in got if render(f).startswith('release')]
+        report('unfocused', [render(f) for f in got] == ['release 1', 'click 1', 'release Shift']
+               and max(lags, default=None) is not None and max(lags) <= LAG_MOST_MS, [render(f) for f in got],
+               f'release 1, click 1, release Shift, each within {LAG_MOST_MS} ms', f'releases {lags} ms after the kill')
+
         # replace
-        eios = pair(lib, pid)
+        mark = len(events)
+        child = spawn('hold')
+        wait_for(lambda: names(mark).count('press A') >= 2, 3)
+        start = len(events)
+        kill(child)
+        eios = pair(lib, pid)   # at once
         if not eios:
             raise RuntimeError('this process did not pair')
         reads = [int(lib.EIOS_IsMouseButtonHeld(eios, b)) for b in (1, 2, 3)]
         reads += [int(lib.EIOS_IsKeyHeld(eios, k)) for k in (VK_SHIFT, VK_A)]
         delay = lib.EIOS_GetKeyboardRepeatDelay(eios)
-        start = len(events)
         lib.EIOS_MoveMouse(eios, 150, 150)
         lib.EIOS_HoldMouse(eios, 0, 0, 1)
         lib.EIOS_ReleaseMouse(eios, 0, 0, 1)
         lib.EIOS_HoldKey(eios, VK_B)
         time.sleep(delay / 1000 + WATCH)
         b_held = int(lib.EIOS_IsKeyHeld(eios, VK_B))
-        before_up = len(events)
         lib.EIOS_ReleaseKey(eios, VK_B)
         time.sleep(SETTLE)
         lib.EIOS_ReleaseClient(eios)
         click = ['move 0', 'press 1', 'release 1', 'click 1']
         got = names(start)
-        b_part = names(start + 4, before_up)
-        report('replace', reads == [0] * 5 and got[:4] == click and b_part.count('press B') >= 2
-               and set(b_part) == {'press B', 'typed b'} and names(before_up) == ['release B'] and b_held == 1, got,
-               f'reads 0 0 0 0 0, {click}, then B pressed and typed 2 times or more and released at the end, B held',
-               f'reads {reads}, B held {b_held}')
+        cut = got.index('move 0') if 'move 0' in got else len(got)
+        let_go, mine = got[:cut], got[cut:]   # the dead controller's let-go, then this pair's input
+        a_up = let_go.index('release A') if 'release A' in let_go else len(let_go)
+        report('replace', reads == [0] * 5 and b_held == 1
+               and sorted(n for n in let_go if n.startswith('release')) == sorted(held) and 'press A' not in let_go[a_up:]
+               and mine[:4] == click and mine[4:].count('press B') >= 2 and set(mine[4:-1]) == {'press B', 'typed b'}
+               and mine[-1:] == ['release B'], got,
+               f'each of {held} once and no A after its release, then reads 0 0 0 0 0, {click}, then B pressed and '
+               'typed 2 times or more and released at the end, B held', f'reads {reads}, B held {b_held}')
 
         # in-flight
         child = spawn('in-flight')

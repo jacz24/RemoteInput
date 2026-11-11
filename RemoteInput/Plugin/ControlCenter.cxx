@@ -60,7 +60,8 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
     {
         //A controller killed inside a command leaves the client's answer to it, which would answer this controller's first
         //command before the client ran it, and each command after it one late (Simba-Reflection #254).
-        //shortcut: a command still running at this pair answers after the drain; the window is that command's length.
+        //shortcut: a command still running at this pair answers after the drain, so this pair's commands run one late;
+        //give each command a number that its answer returns if a pair inside a dead controller's command is seen.
         while (response_signal->try_wait())
         {
         }
@@ -116,7 +117,7 @@ ControlCenter::ControlCenter(std::int32_t pid, bool is_controller, std::unique_p
                         }
                         else
                         {
-                            release_owner_input();
+                            release_owner_input(false);
                         }
 
                         if (framed)
@@ -1189,7 +1190,16 @@ bool ControlCenter::wait_for_command() noexcept
     if (owner_thread)
     {
         HANDLE handles[] = {command_signal->native_handle(), owner_thread};
-        return WaitForMultipleObjects(2, handles, FALSE, INFINITE) == WAIT_OBJECT_0;   // a failure ends the watch too
+        DWORD woke = WaitForMultipleObjects(2, handles, FALSE, INFINITE);
+        if (woke == WAIT_OBJECT_0 || woke == WAIT_OBJECT_0 + 1)
+        {
+            return woke == WAIT_OBJECT_0;
+        }
+
+        //A failed wait is no sign of the owner's end: it ends the watch alone, and the owner's input stays its own.
+        fprintf(stderr, "RemoteInput: the wait on the controller's thread failed (error %lu), so the client no longer watches it\n", GetLastError());
+        CloseHandle(owner_thread);
+        owner_thread = nullptr;
     }
     #endif
 
@@ -1199,7 +1209,8 @@ bool ControlCenter::wait_for_command() noexcept
 
 // Before each command: a holder other than the owner (a new pair, or none after a release) finds the owner's input let
 // go first, so a lost owner's let-go never reaches a new holder's input, and the new holder becomes the owner. The owner
-// is the pair's thread, as for the block of real input (blocks_real_input) and controller_is_paired.
+// is the pair's thread, as for the block of real input (blocks_real_input) and controller_is_paired. A release of the
+// pair (no holder) is the controller's own stop, which waits the reaction as before; a lost owner's let-go waits none.
 void ControlCenter::track_owner() noexcept
 {
     std::int64_t holder = holder_key();
@@ -1210,17 +1221,23 @@ void ControlCenter::track_owner() noexcept
 
     if (input_owner != -1)
     {
-        release_owner_input();
+        release_owner_input(holder == -1);
     }
     input_owner = holder;
 
     #if defined(_WIN32) || defined(_WIN64)
     if (holder != -1)
     {
-        //The handle keeps the thread's ID from reuse while the client waits on it. A thread that has ended already is no
-        //pair (controller_is_paired frees it), so it is not watched, and its input waits for the next holder.
-        HANDLE thread = OpenThread(SYNCHRONIZE, FALSE, static_cast<DWORD>(holder));
-        if (thread && WaitForSingleObject(thread, 0) != WAIT_TIMEOUT)
+        //The handle keeps the thread's ID from reuse while the client waits on it. The key's low half is the thread's ID.
+        //shortcut: a thread that has ended already is no pair (controller_is_paired frees it), so it is not watched and its
+        //input waits for the next holder; watch the holder's process too if a controller is seen to command from another thread.
+        DWORD tid = static_cast<DWORD>(holder);
+        HANDLE thread = OpenThread(SYNCHRONIZE, FALSE, tid);
+        if (!thread)
+        {
+            fprintf(stderr, "RemoteInput: no watch on the controller's thread %lu (error %lu): if it dies, its held input waits for the next controller\n", tid, GetLastError());
+        }
+        else if (WaitForSingleObject(thread, 0) != WAIT_TIMEOUT)
         {
             CloseHandle(thread);
             thread = nullptr;
@@ -1230,11 +1247,11 @@ void ControlCenter::track_owner() noexcept
     #endif
 }
 
-// Lets go of each key and button the owner held, at once and once (stop_all_processing, which posts nothing for none):
-// an emergency end, with no hand's gaps. Its key releases end the repeat under the repeat task's lock.
-void ControlCenter::release_owner_input() noexcept
+// Lets go of each key and button the owner held, at once and once (stop_all_processing, which posts nothing for none),
+// with no hand's gaps. Its key releases end the repeat under the repeat task's lock.
+void ControlCenter::release_owner_input(bool react) noexcept
 {
-    io_controller->stop_all_processing();
+    io_controller->stop_all_processing(react);
 
     #if defined(_WIN32) || defined(_WIN64)
     if (owner_thread)

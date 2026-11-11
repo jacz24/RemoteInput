@@ -47,7 +47,7 @@ private:
     std::int64_t holder_key() const noexcept;
     bool wait_for_command() noexcept;
     void track_owner() noexcept;
-    void release_owner_input() noexcept;
+    void release_owner_input(bool react) noexcept;
 
     bool init_maps() noexcept;
     bool init_signals() noexcept;
