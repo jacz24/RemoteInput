@@ -56,6 +56,7 @@ EXPORT void STD_CALL EIOS_SetMouseInputEnabled(EIOS* eios, bool enabled) noexcep
 EXPORT void STD_CALL EIOS_GetMousePosition(EIOS* eios, std::int32_t* x, std::int32_t* y) noexcept;
 EXPORT void STD_CALL EIOS_GetRealMousePosition(EIOS* eios, std::int32_t* x, std::int32_t* y) noexcept;
 EXPORT void STD_CALL EIOS_MoveMouse(EIOS* eios, std::int32_t x, std::int32_t y) noexcept;
+// A button: 1 left, 2 middle, 3 right, 0 right too; any other number is none (InputOutput::SimbaMouseButtonToJava).
 EXPORT void STD_CALL EIOS_HoldMouse(EIOS* eios, std::int32_t x, std::int32_t y, std::int32_t button) noexcept;
 EXPORT void STD_CALL EIOS_ReleaseMouse(EIOS* eios, std::int32_t x, std::int32_t y, std::int32_t button) noexcept;
 EXPORT void STD_CALL EIOS_ScrollMouse(EIOS* eios, std::int32_t x, std::int32_t y, std::int32_t lines) noexcept;
@@ -85,6 +86,7 @@ EXPORT EIOS* SimbaPluginTarget_RequestWithDebugImage(const char* initargs, void*
 EXPORT void SimbaPluginTarget_Release(EIOS* eios) noexcept;
 EXPORT void SimbaPluginTarget_GetDimensions(EIOS* eios, std::int32_t* width, std::int32_t* height) noexcept;
 EXPORT bool SimbaPluginTarget_GetImageData(EIOS* eios, std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height, void** bgra, std::int32_t* data_width) noexcept;
+// mouse_button: Simba's MouseButtonToInt, the EIOS exports' numbers (EIOS_HoldMouse's comment).
 EXPORT bool SimbaPluginTarget_MousePressed(EIOS* eios, int mouse_button) noexcept;
 EXPORT void SimbaPluginTarget_MousePosition(EIOS* eios, std::int32_t* x, std::int32_t* y) noexcept;
 EXPORT void SimbaPluginTarget_MouseTeleport(EIOS* eios, std::int32_t x, std::int32_t y) noexcept;

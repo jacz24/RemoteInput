@@ -1257,7 +1257,8 @@ void InputOutput::move_mouse(std::int32_t x, std::int32_t y) noexcept
 
 void InputOutput::hold_mouse(std::int32_t button) noexcept
 {
-    if (SimbaMouseButtonToJava(button) != 0 && !this->is_mouse_held(button))
+    std::int32_t pressed = SimbaMouseButtonToJava(button);
+    if (pressed != 0 && !mouse_buttons[pressed - 1])
     {
         extern std::unique_ptr<ControlCenter> control_center;
         if (!control_center)
@@ -1284,7 +1285,6 @@ void InputOutput::hold_mouse(std::int32_t button) noexcept
             std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
             //The press reports the pressed button; the mask carries every held one
-            std::int32_t pressed = SimbaMouseButtonToJava(button);
             mouse_buttons[pressed - 1] = true;
             std::int32_t buttonMask = (mouse_buttons[0] ? java::InputEvent::GetDownMaskForButton(1) : 0) |
                                       (mouse_buttons[1] ? java::InputEvent::GetDownMaskForButton(2) : 0) |
@@ -1469,8 +1469,8 @@ void InputOutput::scroll_mouse(std::int32_t lines) noexcept
 
 bool InputOutput::is_mouse_held(std::int32_t button) const noexcept
 {
-    std::int32_t held = SimbaMouseButtonToJava(button);
-    return held != 0 && mouse_buttons[held - 1];
+    std::int32_t java_button = SimbaMouseButtonToJava(button);
+    return java_button != 0 && mouse_buttons[java_button - 1];
 }
 
 void InputOutput::stop_all_processing() noexcept
@@ -1682,7 +1682,9 @@ std::int32_t InputOutput::SimbaMouseButtonToJava(std::int32_t button) const noex
     //The one button number of every boundary: Simba's target calls, the EIOS exports and the command payload pass the
     //caller's number unchanged to here. 1 left, 2 middle, 3 right, as Simba 2 sends them (MouseButtonToInt at Simba
     //146e4d67e3) and as Java numbers them; 0 is right too, Simba 1's number, an alias kept for its callers. Any other
-    //number (Simba 2's 4 and 5, its scroll buttons) is no button: 0, which presses, releases and reads nothing.
+    //number is no button: 0, which presses, releases and reads nothing.
+    //shortcut: Simba 2's 4 and 5 (SCROLL_UP and SCROLL_DOWN, which its Windows target sends as the side buttons X1 and
+    //X2) are none, as no caller here sends them; give them two slots and Java's buttons 4 and 5 when one does.
     switch (button)
     {
         case 1: return 1;

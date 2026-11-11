@@ -15,7 +15,8 @@ the POST lines, its reads the EIOS_IsMouseButtonHeld answers (number:held). The 
   stop           EIOS_ReleaseClient with the three held: a release and its click of each, the right one last
   re-pair        a new pair of the same client: no button reads held, nothing posted
   right-click    a right press and release: both posted
-  no-button      4, 5 (Simba's scroll buttons) and -1 pressed, read and released: nothing, and no slot held after
+  no-button      4, 5 (Simba's SCROLL_UP and SCROLL_DOWN) and -1 pressed, read and released: nothing, and no slot
+                 held after
 
 usage: javac --release 11 -d testbed/out testbed/MoveLog.java
        python -I testbed/probe_buttons.py <java.exe> <libRemoteInput.dll>
