@@ -10,8 +10,11 @@ plugin's exports:
             B's press ends A's repeat; B repeats after its own delay; B's release ends the repeat while A is still down,
             and A posts nothing more until its release. A's and B's first repeats came 511 and 507 ms after their
             presses, at the OS's 500 ms.
-  older     hold A, hold B, release A, release B, 1 s apart: the release of the older key leaves B's repeat alone.
+  older     hold A, hold B, release A, release B, 1 s apart: the release of the older key starts B's delay again, as the
+            operator's keyboard did (#164), and B repeats on to its own release.
   long      hold A 4 s, then D 4 s, 2 s apart, as the operator held them (#142): the fold below.
+  modifiers MODIFIER_STEPS, #164's steps of a letter and a modifier (Shift, Ctrl, Alt, each side), one action a second,
+            each step an episode of keys (episodes()): the probe prints each one's runs, and checks the steps read back.
   slow      the rollover again, with KeyLog holding the command thread the repeat interval after each key it posts, so
             B's press spans two of A's repeat times (#104). Where B counted as held before its task was the newest, A's
             task posted a repeat of B there, before B's delay; at real speed the window is two posts long.
@@ -31,13 +34,18 @@ every repeat falls at one point), each hold its own phase and the holds weighted
 holds, folded so, against the keyboard's long holds: at 15.625 ms, at most theirs; at the best period, within theirs, and
 the period too. A grid of a fixed phase scores about 0.99 at its period, as the plugin's of #105 did at 15.625 ms.
 --keyboard logs the operator's own holds in KeyLog's shown window, each event's arrival in µs and the OS's tick at it, and
-prints their fold; --tick1 holds a 1 ms tick in this process for the log.
+prints their fold and their episodes; --tick1 holds a 1 ms tick in this process for the log; --modifiers asks for #164's
+steps in place of the long holds. --read prints a saved log's episodes.
 
 usage: javac --release 11 -d testbed/out testbed/KeyLog.java
        python -I testbed/probe_key_repeat.py <java.exe> <libRemoteInput.dll>
-       python -I testbed/probe_key_repeat.py <java.exe> --keyboard <log.tsv> [--tick1]
-       python -I testbed/probe_key_repeat.py --model   (the fold gate and the intervals on a model of the plugin's grid)
+       python -I testbed/probe_key_repeat.py <java.exe> --keyboard <log.tsv> [--tick1] [--modifiers]
+       python -I testbed/probe_key_repeat.py --read <log.tsv>
+       python -I testbed/probe_key_repeat.py --model   (the fold gate and the intervals on a model of the plugin's grid,
+                                                        and episodes() on a made-up log)
 JVM_OPTS adds JVM options (-Xcheck:jni). Exit 0 only when every check passes.
+One file past 500 lines: each probe stands alone under python -I (ca7ae70's review), and the keyboard modes read the
+operator's logs with the same parsers and rule as the plugin's phases.
 """
 import ctypes
 import math
@@ -50,8 +58,20 @@ import threading
 import time
 
 PRESSED, TYPED, RELEASED = 401, 400, 402
+CHAR_UNDEFINED = 0xFFFF
 VK_ESCAPE, VK_UP, VK_A, VK_B, VK_D = 0x1B, 0x26, 0x41, 0x42, 0x44
-KEY_NAMES = {VK_ESCAPE: "Escape", VK_UP: "Up"}
+KEY_NAMES = {VK_ESCAPE: "Escape", VK_UP: "Up", 0x10: "Shift", 0x11: "Ctrl", 0x12: "Alt"}
+SIDES = {2: "L", 3: "R"}   # KeyEvent's KEY_LOCATION_LEFT and KEY_LOCATION_RIGHT
+# #164's steps in episodes()'s notation (+K a press, -K a release, L or R the side), one action a second: the ticket's
+# two, Shift pressed and released inside A's hold, B pressed inside Shift's, then the other sides and modifiers; then an
+# older key's release under a repeating key, a letter's and a modifier's.
+MODIFIER_STEPS = ["+A +LShift -A -LShift", "+LShift -LShift", "+A +LShift -LShift -A", "+A +LShift +B -B -LShift -A",
+                  "+A +RShift -A -RShift", "+RShift -RShift", "+A +LCtrl -A -LCtrl", "+LCtrl -LCtrl",
+                  "+A +RCtrl -A -RCtrl", "+RCtrl -RCtrl", "+A +LAlt -A -LAlt", "+A +RAlt -A -RAlt",
+                  "+A +B -A -B", "+LShift +A -LShift -A"]
+# Each step key's Windows key, as the plugin's exports take it.
+STEP_KEYS = {"A": VK_A, "B": VK_B, "LShift": 0xA0, "RShift": 0xA1, "LCtrl": 0xA2, "RCtrl": 0xA3, "LAlt": 0xA4,
+             "RAlt": 0xA5}
 # The plugin's grid (InputOutput.cxx's wait_for_tick, #142): each step GRID_MS, and up to GRID_STEP_MS either way.
 GRID_MS, GRID_STEP_MS = 15.75, 0.52
 # A first repeat comes at the first grid point at or after its delay (#105), up to a step and the post after it; the
@@ -81,10 +101,11 @@ def os_ticks_ms():
 
 
 def repeat_holds(events):
-    """Each key's run of presses as (key, its press's arrival, its repeats' arrivals), in µs: a run ends at its key's
-    release or at another key's press."""
+    """Each key's run of presses as (key, its start's arrival, its repeats' arrivals), in µs: a run starts at its key's
+    press, or at another key's release while it repeats, where the keyboard starts the delay again (#164), and ends at
+    its key's release or another key's press or release."""
     holds, held = [], None
-    for kind, code, us, _ in events:
+    for kind, code, us, *_ in events:
         if kind == PRESSED and held and held[0] == code:
             held[2].append(us)
         elif kind == PRESSED:
@@ -92,6 +113,9 @@ def repeat_holds(events):
             holds.append(held)
         elif kind == RELEASED and held and held[0] == code:
             held = None
+        elif kind == RELEASED and held:
+            held = (held[0], us, [])
+            holds.append(held)
     return holds
 
 
@@ -177,7 +201,7 @@ def runs(codes):
 def pressed_per_hold(events):
     """The KEY_PRESSED count of each hold of one key, a hold ending at its release."""
     counts, n = [], 0
-    for kind, _, _, _ in events:
+    for kind, *_ in events:
         if kind == PRESSED:
             n += 1
         elif kind == RELEASED:
@@ -189,7 +213,7 @@ def pressed_per_hold(events):
 def after_release(events, window_us=200_000):
     """Each press or KEY_TYPED within window_us after a release (P14's measure)."""
     late, released = [], None
-    for kind, code, us, _ in events:
+    for kind, code, us, *_ in events:
         if kind == RELEASED:
             released = us
         elif released is not None and us - released < window_us:
@@ -199,10 +223,10 @@ def after_release(events, window_us=200_000):
 
 def check_rollover(events, delay_ms, first_release):
     """The faults of a two-key hold (A, then B) whose first release is first_release: A repeats, B's press ends it, B
-    repeats after its own delay; B's release ends the repeat, and A's leaves it alone."""
+    repeats after its own delay; B's release ends the repeat, and after A's B repeats on (its delay again, #164)."""
     faults = []
-    presses = [(code, us) for kind, code, us, _ in events if kind == PRESSED]
-    releases = [(code, us) for kind, code, us, _ in events if kind == RELEASED]
+    presses = [(code, us) for kind, code, us, *_ in events if kind == PRESSED]
+    releases = [(code, us) for kind, code, us, *_ in events if kind == RELEASED]
     pressed_runs = runs(c for c, _ in presses)
     if [c for c, _ in pressed_runs] != [VK_A, VK_B] or any(n < 2 for _, n in pressed_runs):
         faults.append(f"presses ran {pressed_runs}, expected A repeats, then B repeats, and no A after B")
@@ -214,11 +238,95 @@ def check_rollover(events, delay_ms, first_release):
     elif first_release == VK_A and not any(releases[0][1] < us < releases[1][1] for _, us in presses):
         faults.append("B's repeat ended at A's release")
     for key in (VK_A, VK_B):
-        whens = [when for kind, code, _, when in events if kind == PRESSED and code == key]
+        whens = [when for kind, code, _, when, *_ in events if kind == PRESSED and code == key]
         if len(whens) >= 2 and not delay_ms <= whens[1] - whens[0] <= delay_ms + FIRST_REPEAT_SLACK_MS:
             faults.append(f"{chr(key)}'s first repeat {whens[1] - whens[0]} ms after its press by the plugin's clock, "
                           f"expected {delay_ms}-{delay_ms + FIRST_REPEAT_SLACK_MS}")
     return faults
+
+
+def key_name(code, location):
+    return SIDES.get(location, "") + KEY_NAMES.get(code, chr(code))
+
+
+def event_of(f):
+    """A KeyLog line's event: (id, key code, arrival in µs, when in ms, char, location)."""
+    return int(f[1]), int(f[2]), int(f[5]), int(f[6]), int(f[3]), int(f[4])
+
+
+def episodes(events):
+    """Each episode, from a press with no key held to the release that leaves none held (#164), as its tokens and its
+    KEY_TYPED count. A token is [sign, key, n, ms, char]: + a press and - a release, * a run of n repeats whose first
+    came ms after the event before it (a press's delay, or the gap after another key's press or release); its char is
+    the press's, the release's or the run's first, as repr, empty for CHAR_UNDEFINED."""
+    out, held, last_us = [], set(), 0
+    for kind, code, us, _, char, location in events:
+        if kind == TYPED:
+            if held:
+                out[-1][1] += 1
+            continue
+        key = key_name(code, location)
+        if kind == PRESSED and not held:
+            out.append([[], 0])
+        elif not held:
+            continue   # a release whose press came before the log
+        tokens, c = out[-1][0], "" if char == CHAR_UNDEFINED else ascii(chr(char))
+        if kind == PRESSED and key in held and tokens[-1][:2] == ["*", key]:
+            tokens[-1][2] += 1
+        elif kind == PRESSED and key in held:
+            tokens.append(["*", key, 1, (us - last_us) / 1000, c])
+        else:
+            tokens.append(["+" if kind == PRESSED else "-", key, 0, 0, c])
+        (held.add if kind == PRESSED else held.discard)(key)
+        last_us = us
+    return out
+
+
+def episode_line(tokens, typed):
+    """An episode as one line, `+A'a' A*14@501'a' +LShift ...`, and its KEY_TYPED count against its presses with a char."""
+    chars = sum(1 if s == "+" else n for s, _, n, _, c in tokens if c and s != "-")
+    return " ".join(f"{k}*{n}@{ms:.0f}{c}" if s == "*" else f"{s}{k}{c}" for s, k, n, ms, c in tokens) + \
+        f" | typed {typed} of {chars}"
+
+
+def step_of(tokens):
+    """The step an episode is: its presses and releases alone, in MODIFIER_STEPS's notation."""
+    return " ".join(f"{s}{k}" for s, k, *_ in tokens if s != "*")
+
+
+def shape(tokens):
+    """An episode's tokens with no counts, times or chars, a run as *K: what the keyboard's and the plugin's share."""
+    return " ".join(f"{s}{k}" for s, k, *_ in tokens)
+
+
+def keyboard_shape(step):
+    """The shape the operator's keyboard on Windows 11 gives a step of one action a second (#17; #164, both of
+    Simba-Reflection's docs/live/2026-11-11-key-repeat-modifiers*.tsv): the newest key repeats, a Shift, Ctrl or Alt
+    too; its release ends the repeat, and no older key takes it; another key's release ends the repeat too, and the
+    repeating key repeats again its delay after that release."""
+    out, repeating = [], None
+    for token in step.split():
+        out.append(token)
+        if token[0] == "+":
+            repeating = token[1:]
+        elif token[1:] == repeating:
+            repeating = None
+        if repeating:
+            out.append("*" + repeating)
+    return " ".join(out)
+
+
+def shape_faults(events):
+    """The episodes of MODIFIER_STEPS whose runs are not keyboard_shape()'s."""
+    return [f"{shape(t)}, expected {keyboard_shape(step_of(t))}" for t, _ in episodes(events)
+            if step_of(t) in MODIFIER_STEPS and shape(t) != keyboard_shape(step_of(t))]
+
+
+def print_episodes(name, events):
+    for tokens, typed in episodes(events):
+        step = step_of(tokens)
+        number = MODIFIER_STEPS.index(step) + 1 if step in MODIFIER_STEPS else "-"
+        print(f"  {name} {number}: {episode_line(tokens, typed)}")
 
 
 def main(java, dll):
@@ -237,7 +345,7 @@ def main(java, dll):
         for l in jvm.stdout:
             f = l.split()
             if f[:1] == ["KEY"]:
-                events.append((int(f[1]), int(f[2]), int(f[5]), int(f[6])))  # id, key code, arrival in µs, when in ms
+                events.append(event_of(f))
             elif f[:1] == ["THREADS"]:
                 threads.append(int(f[1].rsplit("-", 1)[1]))
     threading.Thread(target=read, daemon=True).start()
@@ -291,6 +399,13 @@ def main(java, dll):
             call(eios, key)
             time.sleep(1)
 
+    def modifier_steps():
+        for step in MODIFIER_STEPS:
+            for token in step.split():
+                (lib.EIOS_HoldKey if token[0] == "+" else lib.EIOS_ReleaseKey)(eios, STEP_KEYS[token[1:]])
+                time.sleep(1)
+            time.sleep(1)
+
     rng = random.Random(14)  # ctl14.cxx's seed
     default_tick, now_tick = os_ticks_ms()
     presses, presses_threads = phase(lambda: holds(VK_ESCAPE, 10, lambda: rng.randint(20, 125), 400))
@@ -298,6 +413,7 @@ def main(java, dll):
     rollover, _ = phase(lambda: two_keys(VK_B))
     older, _ = phase(lambda: two_keys(VK_A))
     long, _ = phase(lambda: [holds(key, 1, lambda: 4000, 2000) for key in (VK_A, VK_D)])
+    modifiers, _ = phase(modifier_steps)
     jvm.stdin.write(f"POST_MS {speed}\n")  # the phase's THREADS line, read after it, waits for it
     jvm.stdin.flush()
     slow, _ = phase(lambda: two_keys(VK_B))
@@ -325,6 +441,15 @@ def main(java, dll):
     long_ms = [[us / 1000 for us in reps] for _, _, reps in repeat_holds(long)]
     fold = check_fold(long_ms) if len(long_ms) == 2 else [f"{len(long_ms)} long holds, expected 2"]
     checks.append((f"long: the keyboard's fold, at {DEFAULT_TICK_MS} ms and at the best period", not fold, "; ".join(fold)))
+    steps = [step_of(tokens) for tokens, _ in episodes(modifiers)]
+    checks.append(("modifiers: each step one episode, in order", steps == MODIFIER_STEPS, f"episodes {steps}"))
+    shapes = shape_faults(modifiers)
+    checks.append(("modifiers: the keyboard's runs (#164)", not shapes, "; ".join(shapes)))
+    # A run's first repeat comes the delay after the press or release before it, at the first grid point after
+    # (the keyboard's 500-515 ms); its ms are by arrival, each with its post's lag.
+    late = [f"{k}*{n}@{ms:.1f}" for tokens, _ in episodes(modifiers) for s, k, n, ms, _ in tokens
+            if s == "*" and not delay - LAG_MS <= ms <= delay + GRID_MS + GRID_STEP_MS + LAG_MS]
+    checks.append(("modifiers: each run the delay after the press or release before it", not late, " ".join(late)))
 
     print(f"java {version}, repeat delay {delay} ms, interval {speed} ms, the OS's default tick {default_tick:g} ms "
           f"(now {now_tick:g} ms)")
@@ -333,7 +458,8 @@ def main(java, dll):
             print(f"  {name} {KEY_NAMES.get(key, chr(key))}: intervals {' '.join(f'{g:.1f}' for g in gaps)}"
                   f" | late {' '.join(f'{late:.1f}' for late in lates)}")
     for name, events_of in [("rollover", rollover), ("older", older), ("slow", slow)]:
-        print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, _, _ in events_of if k == PRESSED)]}")
+        print(f"  {name} presses in runs: {[(chr(c), n) for c, n in runs(c for k, c, *_ in events_of if k == PRESSED)]}")
+    print_episodes("modifiers", modifiers)
     for (key, _, _), reps in zip(repeat_holds(long), long_ms):
         print(fold_line(f"long {chr(key)}", [reps]))
     if long_ms:
@@ -368,36 +494,75 @@ def model(runs=400):
     gaps = [b - a for pair in pairs for hold in pair for a, b in zip(hold, hold[1:])]
     print(f"the model: {sum(bool(check_fold(pair)) for pair in pairs)} of {runs} runs fail the fold gate; intervals "
           f"{min(gaps):.2f}-{max(gaps):.2f} ms, {sum(g >= LONG_MS for g in gaps) / len(gaps):.3f} of {LONG_MS} ms or more")
+    # episodes() on a made-up log: a release from before it, then step 1 with Shift's repeat, then step 2's press alone.
+    A, S, T = (VK_A, 0x61, 1), (0x10, CHAR_UNDEFINED, 2), (0, 0x61, 0)
+    made = [(RELEASED, VK_B, 0, 0, 0x62, 1)] + [(kind, key[0], ms * 1000, ms, key[1], key[2]) for kind, key, ms in [
+        (PRESSED, A, 10), (TYPED, T, 10), (PRESSED, A, 510), (TYPED, T, 510), (PRESSED, A, 543), (TYPED, T, 543),
+        (PRESSED, S, 1000), (PRESSED, S, 1500), (RELEASED, A, 2000), (PRESSED, S, 2033), (RELEASED, S, 3000),
+        (PRESSED, S, 5000), (RELEASED, S, 5100)]]
+    lines = [episode_line(*e) for e in episodes(made)]
+    assert lines == ["+A'a' A*2@500'a' +LShift LShift*1@500 -A'a' LShift*1@33 -LShift | typed 3 of 3",
+                     "+LShift -LShift | typed 0 of 0"], lines
+    assert [step_of(t) for t, _ in episodes(made)] == MODIFIER_STEPS[:2]
+    assert shape_faults(made) == ["+LShift -LShift, expected +LShift *LShift -LShift"], shape_faults(made)
+    assert keyboard_shape("+A +LShift +B -B -LShift -A") == "+A *A +LShift *LShift +B *B -B -LShift -A"
+    assert keyboard_shape("+A +B -A -B") == "+A *A +B *B -A *B -B"
+    # repeat_holds: A's run, LShift's, and LShift's again from A's release, where its delay starts again.
+    assert [(code, start, len(reps)) for code, start, reps in repeat_holds(made)] == \
+        [(VK_A, 10_000, 2), (0x10, 1_000_000, 1), (0x10, 2_000_000, 1), (0x10, 5_000_000, 0)], repeat_holds(made)
     return 0
 
 
-def keyboard(java, log_path, tick1):
-    """The operator's holds in KeyLog's shown window, logged to log_path with the OS's tick at each event, and their fold."""
+def keyboard(java, log_path, tick1, steps):
+    """The operator's keys in KeyLog's shown window, logged to log_path with the OS's tick at each event: their fold and
+    their episodes."""
     if tick1:
         ctypes.WinDLL("winmm").timeBeginPeriod(1)
     here = os.path.dirname(os.path.abspath(__file__))
     jvm = subprocess.Popen([java, "-cp", os.path.join(here, "out"), "KeyLog", "show"], stdout=subprocess.PIPE, text=True)
+    asked = ("do each step's keys in order, one a second, 2 s between steps (+ a press, - a release, L or R the side), "
+             "and press Escape after each Alt step:\n" + "\n".join(f"  {n}. {s}" for n, s in enumerate(MODIFIER_STEPS, 1))
+             if steps else "hold a letter 4 s, twice or more, 2 s apart")
     events = []
     with open(log_path, "w") as log:
         log.write("us\tid\tkey_code\tkey_char\tlocation\ttick_ms\n")
         for line in jvm.stdout:
             f = line.split()
             if f[:1] == ["READY"]:
-                print(f"java {f[2]}, the OS's tick now {os_ticks_ms()[1]:g} ms: click the window, then hold a letter "
-                      f"4 s, twice or more, 2 s apart; it closes in 2 min")
+                print(f"java {f[2]}, the OS's tick now {os_ticks_ms()[1]:g} ms: click the window, then {asked}\n"
+                      f"close the window to end (it closes itself in 10 min)", flush=True)
             elif f[:1] == ["KEY"]:
                 log.write("\t".join([f[5], f[1], f[2], f[3], f[4], f"{os_ticks_ms()[1]:g}"]) + "\n")
-                events.append((int(f[1]), int(f[2]), int(f[5]), int(f[6])))
+                events.append(event_of(f))
     holds = [(code, [us / 1000 for us in reps]) for code, _, reps in repeat_holds(events) if len(reps) >= 2]
     for code, reps in holds:
         print(fold_line(chr(code), [reps]))
     if holds:
         print(fold_line("all", [reps for _, reps in holds]))
-    return 0
+    return report_episodes(events)
+
+
+def report_episodes(events):
+    """A keyboard log's episodes, and whether each step of MODIFIER_STEPS in it reads as keyboard_shape()."""
+    print_episodes("keyboard", events)
+    faults = shape_faults(events)
+    for fault in faults:
+        print(f"FAIL: {fault}")
+    if not faults:
+        print("PASS: each step the keyboard's runs")
+    return 1 if faults else 0
+
+
+def read(log_path):
+    """A saved keyboard log's episodes, checked against keyboard_shape()."""
+    with open(log_path) as log:
+        rows = [line.split("\t") for line in log.read().splitlines()[1:]]
+    return report_episodes([(int(i), int(code), int(us), int(us) // 1000, int(char), int(location))
+                            for us, i, code, char, location, _ in rows])
 
 
 if __name__ == "__main__":
-    if sys.argv[1] == "--model":
-        sys.exit(model())
-    sys.exit(keyboard(sys.argv[1], sys.argv[3], "--tick1" in sys.argv) if sys.argv[2] == "--keyboard"
-             else main(sys.argv[1], sys.argv[2]))
+    if sys.argv[1] in ("--model", "--read"):
+        sys.exit(model() if sys.argv[1] == "--model" else read(sys.argv[2]))
+    sys.exit(keyboard(sys.argv[1], sys.argv[3], "--tick1" in sys.argv, "--modifiers" in sys.argv)
+             if sys.argv[2] == "--keyboard" else main(sys.argv[1], sys.argv[2]))
