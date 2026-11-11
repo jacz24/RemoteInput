@@ -60,10 +60,12 @@ VK_ESCAPE, VK_UP, VK_A, VK_B, VK_D = 0x1B, 0x26, 0x41, 0x42, 0x44
 KEY_NAMES = {VK_ESCAPE: "Escape", VK_UP: "Up", 0x10: "Shift", 0x11: "Ctrl", 0x12: "Alt"}
 SIDES = {2: "L", 3: "R"}   # KeyEvent's KEY_LOCATION_LEFT and KEY_LOCATION_RIGHT
 # #164's steps in episodes()'s notation (+K a press, -K a release, L or R the side), one action a second: the ticket's
-# two, Shift pressed and released inside A's hold, B pressed inside Shift's, then the other sides and modifiers.
+# two, Shift pressed and released inside A's hold, B pressed inside Shift's, then the other sides and modifiers; then an
+# older key's release under a repeating key, a letter's and a modifier's.
 MODIFIER_STEPS = ["+A +LShift -A -LShift", "+LShift -LShift", "+A +LShift -LShift -A", "+A +LShift +B -B -LShift -A",
                   "+A +RShift -A -RShift", "+RShift -RShift", "+A +LCtrl -A -LCtrl", "+LCtrl -LCtrl",
-                  "+A +RCtrl -A -RCtrl", "+RCtrl -RCtrl", "+A +LAlt -A -LAlt", "+A +RAlt -A -RAlt"]
+                  "+A +RCtrl -A -RCtrl", "+RCtrl -RCtrl", "+A +LAlt -A -LAlt", "+A +RAlt -A -RAlt",
+                  "+A +B -A -B", "+LShift +A -LShift -A"]
 # Each step key's Windows key, as the plugin's exports take it.
 STEP_KEYS = {"A": VK_A, "B": VK_B, "LShift": 0xA0, "RShift": 0xA1, "LCtrl": 0xA2, "RCtrl": 0xA3, "LAlt": 0xA4,
              "RAlt": 0xA5}
@@ -285,6 +287,31 @@ def step_of(tokens):
     return " ".join(f"{s}{k}" for s, k, *_ in tokens if s != "*")
 
 
+def shape(tokens):
+    """An episode's tokens with no counts, times or chars, a run as *K: what the keyboard's and the plugin's share."""
+    return " ".join(f"{s}{k}" for s, k, *_ in tokens)
+
+
+def keyboard_shape(step):
+    """The shape the operator's keyboard on Windows 11 gives a step of one action a second (#17; #164, both of
+    Simba-Reflection's docs/live/2026-11-11-key-repeat-modifiers*.tsv): the newest key repeats, a Shift, Ctrl or Alt
+    too; its release ends the repeat, and no older key takes it; another key's release ends the repeat too, and the
+    repeating key repeats again its delay after that release."""
+    out, repeating = [], None
+    for token in step.split():
+        out.append(token)
+        repeating = token[1:] if token[0] == "+" else None if token[1:] == repeating else repeating
+        if repeating:
+            out.append("*" + repeating)
+    return " ".join(out)
+
+
+def shape_faults(events):
+    """The episodes of MODIFIER_STEPS whose runs are not keyboard_shape()'s."""
+    return [f"{shape(t)}, expected {keyboard_shape(step_of(t))}" for t, _ in episodes(events)
+            if step_of(t) in MODIFIER_STEPS and shape(t) != keyboard_shape(step_of(t))]
+
+
 def print_episodes(name, events):
     for tokens, typed in episodes(events):
         step = step_of(tokens)
@@ -406,6 +433,13 @@ def main(java, dll):
     checks.append((f"long: the keyboard's fold, at {DEFAULT_TICK_MS} ms and at the best period", not fold, "; ".join(fold)))
     steps = [step_of(tokens) for tokens, _ in episodes(modifiers)]
     checks.append(("modifiers: each step one episode, in order", steps == MODIFIER_STEPS, f"episodes {steps}"))
+    shapes = shape_faults(modifiers)
+    checks.append(("modifiers: the keyboard's runs (#164)", not shapes, "; ".join(shapes)))
+    # A run's first repeat comes the delay after the press or release before it, at the first grid point after
+    # (the keyboard's 500-515 ms); its ms are by arrival, each with its post's lag.
+    late = [f"{k}*{n}@{ms:.1f}" for tokens, _ in episodes(modifiers) for s, k, n, ms, _ in tokens
+            if s == "*" and not delay - LAG_MS <= ms <= delay + GRID_MS + GRID_STEP_MS + LAG_MS]
+    checks.append(("modifiers: each run the delay after the press or release before it", not late, " ".join(late)))
 
     print(f"java {version}, repeat delay {delay} ms, interval {speed} ms, the OS's default tick {default_tick:g} ms "
           f"(now {now_tick:g} ms)")
@@ -460,6 +494,9 @@ def model(runs=400):
     assert lines == ["+A'a' A*2@500'a' +LShift LShift*1@500 -A'a' LShift*1@33 -LShift | typed 3 of 3",
                      "+LShift -LShift | typed 0 of 0"], lines
     assert [step_of(t) for t, _ in episodes(made)] == MODIFIER_STEPS[:2]
+    assert shape_faults(made) == ["+LShift -LShift, expected +LShift *LShift -LShift"], shape_faults(made)
+    assert keyboard_shape("+A +LShift +B -B -LShift -A") == "+A *A +LShift *LShift +B *B -B -LShift -A"
+    assert keyboard_shape("+A +B -A -B") == "+A *A +B *B -A *B -B"
     return 0
 
 
@@ -489,17 +526,26 @@ def keyboard(java, log_path, tick1, steps):
         print(fold_line(chr(code), [reps]))
     if holds:
         print(fold_line("all", [reps for _, reps in holds]))
+    return report_episodes(events)
+
+
+def report_episodes(events):
+    """A keyboard log's episodes, and whether each step of MODIFIER_STEPS in it reads as keyboard_shape()."""
     print_episodes("keyboard", events)
-    return 0
+    faults = shape_faults(events)
+    for fault in faults:
+        print(f"FAIL: {fault}")
+    if not faults:
+        print("PASS: each step the keyboard's runs")
+    return 1 if faults else 0
 
 
 def read(log_path):
-    """A saved keyboard log's episodes."""
+    """A saved keyboard log's episodes, checked against keyboard_shape()."""
     with open(log_path) as log:
         rows = [line.split("\t") for line in log.read().splitlines()[1:]]
-    print_episodes("keyboard", [(int(i), int(code), int(us), int(us) // 1000, int(char), int(location))
-                                for us, i, code, char, location, _ in rows])
-    return 0
+    return report_episodes([(int(i), int(code), int(us), int(us) // 1000, int(char), int(location))
+                            for us, i, code, char, location, _ in rows])
 
 
 if __name__ == "__main__":

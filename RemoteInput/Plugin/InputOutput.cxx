@@ -104,6 +104,25 @@ static java::KeyEvent::KeyCodes control_keys_locations[] = {
 };
 static_assert(std::size(control_keys) == std::size(control_keys_locations), "one location for each control key");
 
+//A key that posts one press and its release and never repeats: a control key, as a Mac modifier does. On Windows Shift,
+//Ctrl and Alt of either side repeat as a letter does and take the repeat from it (Simba-Reflection #164, the operator's
+//keyboard on Windows 11, docs/live/2026-11-11-key-repeat-modifiers*.tsv).
+//shortcut: the other control keys (Windows, Apps, Num Lock) stay one press, not measured: log them on a keyboard if a
+//script holds one past the repeat delay.
+static bool IsOnePressKey(std::int32_t code) noexcept
+{
+    #if defined(_WIN32) || defined(_WIN64)
+    switch (code)
+    {
+        case VK_SHIFT: case VK_LSHIFT: case VK_RSHIFT:
+        case VK_CONTROL: case VK_LEFT_CONTROL: case VK_RIGHT_CONTROL:
+        case VK_ALT: case VK_LEFT_ALT: case VK_RIGHT_ALT:
+            return false;
+    }
+    #endif
+    return std::find(std::begin(control_keys), std::end(control_keys), code) != std::end(control_keys);
+}
+
 //MouseEvent.isPopupTrigger as real AWT sets it on each platform.
 static bool IsPopupTrigger(std::int32_t id, std::int32_t button, std::int32_t modifiers) noexcept
 {
@@ -272,8 +291,7 @@ void InputOutput::hold_key(std::int32_t code) noexcept
     //Key is not already held..
     if (!this->is_key_held(code))
     {
-        //Key is a control key
-        if (std::find(std::begin(control_keys), std::end(control_keys), code) != std::end(control_keys))
+        if (IsOnePressKey(code))
         {
             //Control Keys only generate a single held event..
             held_keys.push_back(code);
@@ -304,7 +322,8 @@ void InputOutput::hold_key(std::int32_t code) noexcept
         }
         else
         {
-            //A key pressed while another is held (rollover) takes the same path: its repeat task ends the held key's, as a keyboard repeats only the newest key.
+            //A key pressed while another is held (rollover) takes the same path, a Shift, Ctrl or Alt on Windows too (#164): its
+            //repeat task ends the held key's, as a keyboard repeats only the newest key.
             {
                 //Regain the focus before the key counts as held: a released key's repeat task that wakes in the reaction's
                 //wait then sees no held key and ends, where it would post this key's repeats before its press (#61).
@@ -313,21 +332,25 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                 {
                     this->gain_focus(&receiver, true);
                 }
-                std::int32_t modifiers = GetActiveKeyModifiers();
-                jchar key_char = NativeKeyCodeToChar(code, modifiers);
 
                 //The new key's task is the newest before the key counts as held, both under the lock a repeat task holds from its
                 //check through its posts, so no older task reads this key as held while its own task is the newest. With the key
                 //set first and the task after this key's posts, one that checked in that window posted a repeat of this key
-                //before its delay (#104). A repeat that passed its check posts before this press.
+                //before its delay (#104). A repeat that passed its check posts before this press. The key joins held_keys
+                //there too, before the modifiers are read: a modifier's press carries its own mask, as AWT's does (#164),
+                //and no older task's repeat carries it before this press.
                 std::uint32_t task;
+                std::int32_t modifiers;
+                jchar key_char;
                 {
                     std::lock_guard<std::mutex> lock(this->mutex);
                     task = ++repeat_task;
                     currently_held_key = code;
+                    held_keys.push_back(code);
+                    modifiers = GetActiveKeyModifiers();
+                    key_char = NativeKeyCodeToChar(code, modifiers);
                     held_chars[code] = key_char;
                 }
-                held_keys.push_back(code);
 
                 //Post Event
                 JNIEnv* env = receiver.getEnv();
@@ -359,94 +382,103 @@ void InputOutput::hold_key(std::int32_t code) noexcept
                                          java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
                 }
 
-                if (this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
-                {
-                    //Repeats keep the OS timer's schedule from the press: the first after the delay, then one each interval, however long a post takes.
-                    auto next = pressed_at + std::chrono::milliseconds(this->keyboard_repeat_delay);
-                    auto grid = pressed_at - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-                        std::chrono::duration<double, std::milli>(Random::instance()->generate_random_double(0, GRID_MS)));
-                    input_thread->add_task([&, task, next, grid](std::atomic_bool &stopped) mutable {
-                        wait_for_tick(next, grid);
-
-                        //A key released within the repeat delay never repeats, as on a keyboard: end before the attach.
-                        if (currently_held_key == -1 || repeat_task != task)
-                        {
-                            return;
-                        }
-
-                        JNIEnv* env = nullptr;
-                        //Each pool thread attaches once (the pool has two): a new java.lang.Thread for each hold would move the JVM's counter of unnamed threads (Simba-Reflection #197).
-                        JVM::AttachWorker(this->vm, &env);
-
-                        //The thread stays attached after the task, so its local references go with a frame; declared before the wrappers, so it pops after their destructors.
-                        struct Frame { JNIEnv* env; explicit Frame(JNIEnv* e) : env(e) { env->PushLocalFrame(128); } ~Frame() { env->PopLocalFrame(nullptr); } } frame{env};
-
-                        java::Applet applet{env, this->applet, false};
-                        java::Component receiver = applet.getComponent(0);
-
-                        while (!stopped)
-                        {
-                            if (currently_held_key == -1)
-                            {
-                                break;
-                            }
-
-                            wait_for_tick(next, grid);
-
-                            //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
-                            auto now = std::chrono::steady_clock::now();
-                            auto interval = std::chrono::milliseconds(this->keyboard_speed);
-                            next = (now - next >= interval ? now : next) + interval;
-
-                            //Read the key after the sleep: a release or a newer task during the sleep ends this one, with no press after the release.
-                            //release_key takes the same lock, so a release cannot come between this check and the last post below.
-                            std::lock_guard<std::mutex> lock(this->mutex);
-                            std::int32_t code = currently_held_key;
-                            if (code == -1 || repeat_task != task)
-                            {
-                                break;
-                            }
-
-                            //Post Event. A repeat is no new key: it waits no reaction.
-                            if (!this->has_focus(&receiver))
-                            {
-                                this->gain_focus(&receiver, false);
-                            }
-
-                            std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-                            std::int32_t modifiers = GetActiveKeyModifiers();
-                            std::int32_t keycode = GetJavaKeyCode(code);
-                            std::int32_t location = GetKeyLocation(code);
-                            jchar key_char = NativeKeyCodeToChar(code, modifiers);
-                            held_chars[code] = key_char;
-
-                            java::KeyEvent::Post(env,
-                                                 &receiver,
-                                                 java::KeyEvent::KeyCodes::KEY_PRESSED,
-                                                 when,
-                                                 modifiers,
-                                                 keycode,
-                                                 key_char,
-                                                 location,
-                                                 code);
-
-                            //Each repeat is a WM_KEYDOWN: no KEY_TYPED for a key with no char, as for its press (#82).
-                            if (key_char != static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED))
-                            {
-                                java::KeyEvent::Post(env,
-                                                     &receiver,
-                                                     java::KeyEvent::KeyCodes::KEY_TYPED,
-                                                     when,
-                                                     modifiers,
-                                                     0,
-                                                     key_char,
-                                                     java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
-                            }
-                        }
-                    });
-                }
+                repeat_key(task, pressed_at);
             }
         }
+    }
+}
+
+//The repeats of currently_held_key as task, under the newest task's number: the first the repeat delay after from, then
+//one each interval, until the key's release or a newer task (a press; on Windows another key's release, #164).
+void InputOutput::repeat_key(std::uint32_t task, std::chrono::steady_clock::time_point from) noexcept
+{
+    if (this->keyboard_speed >= 0 && this->keyboard_repeat_delay >= 0)
+    {
+        //Repeats keep the OS timer's schedule from from: the first after the delay, then one each interval, however long a post takes.
+        //shortcut: each task draws a new grid phase, a restart's too (#164); whether a keyboard's phase carries across another
+        //key's release is not measured: fold one hold's runs on both sides of a release if a detector reads the phase.
+        auto next = from + std::chrono::milliseconds(this->keyboard_repeat_delay);
+        auto grid = from - std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double, std::milli>(Random::instance()->generate_random_double(0, GRID_MS)));
+        input_thread->add_task([this, task, next, grid](std::atomic_bool &stopped) mutable {
+            wait_for_tick(next, grid);
+
+            //A key released within the repeat delay never repeats, as on a keyboard: end before the attach.
+            if (currently_held_key == -1 || repeat_task != task)
+            {
+                return;
+            }
+
+            JNIEnv* env = nullptr;
+            //Each pool thread attaches once (the pool has two): a new java.lang.Thread for each hold would move the JVM's counter of unnamed threads (Simba-Reflection #197).
+            JVM::AttachWorker(this->vm, &env);
+
+            //The thread stays attached after the task, so its local references go with a frame; declared before the wrappers, so it pops after their destructors.
+            struct Frame { JNIEnv* env; explicit Frame(JNIEnv* e) : env(e) { env->PushLocalFrame(128); } ~Frame() { env->PopLocalFrame(nullptr); } } frame{env};
+
+            java::Applet applet{env, this->applet, false};
+            java::Component receiver = applet.getComponent(0);
+
+            while (!stopped)
+            {
+                if (currently_held_key == -1)
+                {
+                    break;
+                }
+
+                wait_for_tick(next, grid);
+
+                //An OS repeat timer skips the ticks a stall missed (gain_focus can wait 2 s); it does not post them in a burst.
+                auto now = std::chrono::steady_clock::now();
+                auto interval = std::chrono::milliseconds(this->keyboard_speed);
+                next = (now - next >= interval ? now : next) + interval;
+
+                //Read the key after the sleep: a release or a newer task during the sleep ends this one, with no press after the release.
+                //release_key takes the same lock, so a release cannot come between this check and the last post below.
+                std::lock_guard<std::mutex> lock(this->mutex);
+                std::int32_t code = currently_held_key;
+                if (code == -1 || repeat_task != task)
+                {
+                    break;
+                }
+
+                //Post Event. A repeat is no new key: it waits no reaction.
+                if (!this->has_focus(&receiver))
+                {
+                    this->gain_focus(&receiver, false);
+                }
+
+                std::int64_t when = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+                std::int32_t modifiers = GetActiveKeyModifiers();
+                std::int32_t keycode = GetJavaKeyCode(code);
+                std::int32_t location = GetKeyLocation(code);
+                jchar key_char = NativeKeyCodeToChar(code, modifiers);
+                held_chars[code] = key_char;
+
+                java::KeyEvent::Post(env,
+                                     &receiver,
+                                     java::KeyEvent::KeyCodes::KEY_PRESSED,
+                                     when,
+                                     modifiers,
+                                     keycode,
+                                     key_char,
+                                     location,
+                                     code);
+
+                //Each repeat is a WM_KEYDOWN: no KEY_TYPED for a key with no char, as for its press (#82).
+                if (key_char != static_cast<jchar>(java::KeyEvent::KeyCodes::CHAR_UNDEFINED))
+                {
+                    java::KeyEvent::Post(env,
+                                         &receiver,
+                                         java::KeyEvent::KeyCodes::KEY_TYPED,
+                                         when,
+                                         modifiers,
+                                         0,
+                                         key_char,
+                                         java::KeyEvent::KeyCodes::KEY_LOCATION_UNKNOWN);
+                }
+            }
+        });
     }
 }
 
@@ -460,7 +492,7 @@ void InputOutput::release_key(std::int32_t code, bool react) noexcept
 
     if (auto it = std::find(held_keys.begin(), held_keys.end(), code); it != held_keys.end())
     {
-        if (std::find(std::begin(control_keys), std::end(control_keys), code) != std::end(control_keys))
+        if (IsOnePressKey(code))
         {
             held_keys.erase(it); //held_keys.erase(std::remove(held_keys.begin(), held_keys.end(), code), held_keys.end());
 
@@ -496,7 +528,7 @@ void InputOutput::release_key(std::int32_t code, bool react) noexcept
             held_keys.erase(it);
 
             //The repeating key's release ends the repeat, though an older key is still down: a keyboard repeats no key it
-            //has passed over (#17, Windows 11). An older key's release leaves the repeat alone.
+            //has passed over (#17, Windows 11). Another key's release starts the repeat's delay again (#164, below).
             if (currently_held_key == code)
             {
                 currently_held_key = -1;
@@ -533,6 +565,17 @@ void InputOutput::release_key(std::int32_t code, bool react) noexcept
                                  key_char,
                                  location,
                                  code);
+
+            //On Windows another key's release ends the repeat, and the repeating key repeats again the delay after it, then
+            //each interval: the operator's keyboard (Simba-Reflection #164) did so 500-515 ms after a release, a letter's
+            //repeat after a letter's, a modifier's after a letter's and a letter's after Shift's, as a first repeat after
+            //its press. A newer task ends this key's under the lock its loop holds. macOS and Linux were not measured.
+            #if defined(_WIN32) || defined(_WIN64)
+            if (currently_held_key != -1)
+            {
+                repeat_key(++repeat_task, std::chrono::steady_clock::now());
+            }
+            #endif
         }
     }
 }
