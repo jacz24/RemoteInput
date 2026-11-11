@@ -27,9 +27,9 @@ namespace java
 
         static void Dispatch(JNIEnv* env, Component* receiver, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, bool is_system_generated = false) noexcept;
 
-        //nativeKey: the Windows virtual key of a press or a release, which sets the four private fields a native event
+        //virtualKey: the Windows virtual key of a press or a release, which sets the four private fields a native event
         //carries (Simba-Reflection #206); 0 leaves them 0, as a KEY_TYPED has them.
-        static void Post(JNIEnv* env, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, std::int32_t nativeKey = 0, bool is_system_generated = true) noexcept;
+        static void Post(JNIEnv* env, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, std::int32_t virtualKey = 0, bool is_system_generated = true) noexcept;
 
         enum KeyCodes : std::int32_t
         {

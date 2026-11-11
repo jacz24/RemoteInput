@@ -513,7 +513,7 @@ NativeKey GetNativeKey(std::int32_t virtual_key) noexcept
 {
     //A message names Shift, Ctrl or Alt alone: its side is in the scancode, which the peer's table does not read.
     std::int32_t key = virtual_key >= VK_LSHIFT && virtual_key <= VK_RMENU ? VK_SHIFT + (virtual_key - VK_LSHIFT) / 2 : virtual_key;
-    NativeKey native = {key, 0, 0, 0};
+    NativeKey native = {key, 0, 0, 0, false};
     if (key <= 0 || key > 0xFF)
     {
         return native;
@@ -536,10 +536,12 @@ NativeKey GetNativeKey(std::int32_t virtual_key) noexcept
         native.unicode = count == 1 || count == -1 ? chars[0] : 0;
 
         //A numpad key's entry takes its key code at each event (UpdateDynPrimaryKeymap), as "/" and "NumPad /" share a char.
-        //shortcut: a dead key's (-1) holds the key code here, where the peer's holds its VK_DEAD_* (charToDeadVKTable);
-        //the fork's key code of such a key is a US table's anyway. Map it when a client runs a layout with dead keys.
         bool numpad = key == VK_CLEAR || (key >= VK_NUMPAD0 && key <= VK_DIVIDE) || key == VK_NUMLOCK;
         native.extended_char = count == 1 && !numpad ? chars[0] : 0;
+        //shortcut: a dead key's (-1) holds its VK_DEAD_* (the peer's charToDeadVKTable), which this does not map, so its
+        //extendedKeyCode stays 0; the fork's key code of such a key is a US table's anyway. Map both when a client runs a
+        //layout with dead keys.
+        native.dead_key = count == -1;
     }
     return native;
 }

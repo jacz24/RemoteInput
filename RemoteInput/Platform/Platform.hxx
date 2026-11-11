@@ -36,6 +36,7 @@ struct NativeKey
     std::int32_t scancode;      //MapVirtualKey's: the left key's for either side, with no extended prefix
     std::int32_t unicode;       //the key's char with no modifier held, or 0
     std::int32_t extended_char; //the char whose extended key code the table holds, or 0: the table holds the key code
+    bool dead_key;              //the table holds a VK_DEAD_* code, which GetNativeKey does not map
 };
 NativeKey GetNativeKey(std::int32_t virtual_key) noexcept;
 #endif

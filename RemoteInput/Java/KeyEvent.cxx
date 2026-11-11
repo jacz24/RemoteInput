@@ -15,23 +15,18 @@ namespace java
 	//The private fields the public constructor leaves 0, which a hand's key event carries: RuneLite's Keybind.matches
 	//reads getExtendedKeyCode (Simba-Reflection #206). Set as the JDK's Windows peer sets them (awt_Component.cpp's
 	//SendKeyEvent): the key's entry in its table of the layout, whatever the modifiers held; the key code where the
-	//entry holds none (a key with no char, a numpad key, Enter's '\r').
+	//entry holds none (a key with no char, a numpad key, Enter's '\r'). A dead key's extendedKeyCode stays 0.
 	//shortcut: on macOS and Linux they stay 0, where those peers fill them from their own key codes: fill them when a
 	//client runs there.
-	static void SetNativeFields(JNIEnv* env, jclass cls, jobject event, std::int32_t keyCode, std::int32_t nativeKey) noexcept
+	static void SetNativeFields(JNIEnv* env, jclass cls, jobject event, std::int32_t keyCode, std::int32_t virtualKey) noexcept
 	{
 		#if defined(_WIN32) || defined(_WIN64)
-		NativeKey key = GetNativeKey(nativeKey);
+		NativeKey key = GetNativeKey(virtualKey);
 		std::int32_t extended = 0;
 		if (key.extended_char)
 		{
 			static jmethodID forChar = env->GetStaticMethodID(cls, "getExtendedKeyCodeForChar", "(I)I");
-			extended = env->CallStaticIntMethod(cls, forChar, key.extended_char);
-			if (env->ExceptionCheck())
-			{
-				env->ExceptionClear();
-				extended = 0;
-			}
+			extended = ClearException(env, env->CallStaticIntMethod(cls, forChar, key.extended_char));
 		}
 
 		static jfieldID raw = env->GetFieldID(cls, "rawCode", "J");
@@ -41,7 +36,10 @@ namespace java
 		env->SetLongField(event, raw, key.raw_code);
 		env->SetLongField(event, scancode, key.scancode);
 		env->SetLongField(event, unicode, key.unicode);
-		env->SetLongField(event, extendedKeyCode, extended ? extended : keyCode);
+		if (!key.dead_key)
+		{
+			env->SetLongField(event, extendedKeyCode, extended ? extended : keyCode);
+		}
 		#endif
 	}
 
@@ -76,14 +74,14 @@ namespace java
 		}
 	}
 
-	void KeyEvent::Post(JNIEnv* env, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, std::int32_t nativeKey, bool is_system_generated) noexcept
+	void KeyEvent::Post(JNIEnv* env, Component* source, std::int32_t id, std::int64_t when, std::int32_t modifiers, std::int32_t keyCode, jchar keyChar, std::int32_t keyLocation, std::int32_t virtualKey, bool is_system_generated) noexcept
 	{
 		jobject event = Build(env, "java/awt/event/KeyEvent", [&](jclass cls) {
 			static jmethodID methodId = env->GetMethodID(cls, "<init>", "(Ljava/awt/Component;IJIICI)V");
 			jobject built = env->NewObject(cls, methodId, source->get(), id, when, modifiers, keyCode, keyChar, keyLocation);
-			if (built && nativeKey)
+			if (built && virtualKey)
 			{
-				SetNativeFields(env, cls, built, keyCode, nativeKey);
+				SetNativeFields(env, cls, built, keyCode, virtualKey);
 			}
 			return built;
 		});
