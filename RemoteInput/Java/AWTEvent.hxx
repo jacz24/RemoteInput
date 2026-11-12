@@ -19,6 +19,7 @@ namespace java
     {
     private:
         static inline std::atomic<std::uint32_t> lost_events{0};
+        static bool PostAsPeer(JNIEnv* env, jobject event);
 
     protected:
         jobject self;
