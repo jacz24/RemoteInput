@@ -90,7 +90,8 @@ namespace java
     //- postEvent's "Event posted on wrong app context", the one RuntimeException of that exact class it throws, and before
     //  the queue.
     //Any other exception may come after the event is in the queue (the start of a dispatch thread): it is cleared, and the
-    //event is not posted again, so no event reaches the event queue twice.
+    //event is not posted again, so no event reaches the event queue twice. A disposed app context has no post queue, and
+    //postEvent drops the event with no exception, as it drops the peer's.
     bool AWTEvent::PostAsPeer(JNIEnv* env, jobject event)
     {
         jclass toolkit_class = env->FindClass("sun/awt/SunToolkit");
@@ -110,29 +111,33 @@ namespace java
         static jmethodID post_methodId = find("postEvent", "(Lsun/awt/AppContext;Ljava/awt/AWTEvent;)V");
 
         jobject context = nullptr;
-        if (context_methodId && post_methodId)
+        jclass object_class = ClearException(env, env->FindClass("java/util/EventObject"));
+        if (object_class && context_methodId && post_methodId)
         {
-            jclass object_class = env->FindClass("java/util/EventObject");
             static jmethodID source_methodId = env->GetMethodID(object_class, "getSource", "()Ljava/lang/Object;");
-            jobject source = env->CallObjectMethod(event, source_methodId);
+            jobject source = ClearException(env, env->CallObjectMethod(event, source_methodId));
             context = ClearException(env, env->CallStaticObjectMethod(toolkit_class, context_methodId, source));
             env->DeleteLocalRef(source);
-            env->DeleteLocalRef(object_class);
         }
+        env->DeleteLocalRef(object_class);
 
-        bool queued = false;
+        //True: the event must not be posted again.
+        bool handled = false;
         if (context)
         {
             env->CallStaticVoidMethod(toolkit_class, post_methodId, context, event);
             jthrowable thrown = env->ExceptionOccurred();
             env->ExceptionClear();
 
-            queued = !thrown;
+            handled = !thrown;
             if (thrown)
             {
-                jclass runtime_class = env->FindClass("java/lang/RuntimeException");
+                //shortcut: a RuntimeException of that exact class after the queue would post the event twice, and an
+                //Error before it (the post queue's item) is lost and not counted; JDK 11 and 25 throw neither there, so
+                //read a new JDK's postEvent before it runs a client.
+                jclass runtime_class = ClearException(env, env->FindClass("java/lang/RuntimeException"));
                 jclass thrown_class = env->GetObjectClass(thrown);
-                queued = !env->IsSameObject(thrown_class, runtime_class);
+                handled = !env->IsSameObject(thrown_class, runtime_class);
                 env->DeleteLocalRef(thrown_class);
                 env->DeleteLocalRef(runtime_class);
                 env->DeleteLocalRef(thrown);
@@ -141,7 +146,7 @@ namespace java
         }
 
         env->DeleteLocalRef(toolkit_class);
-        return queued;
+        return handled;
     }
 
     void AWTEvent::Post(JNIEnv* env, jobject event, bool is_system_generated)
